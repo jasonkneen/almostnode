@@ -45,6 +45,7 @@ import * as vmShim from './shims/vm';
 import * as inspectorShim from './shims/inspector';
 import * as asyncHooksShim from './shims/async_hooks';
 import * as domainShim from './shims/domain';
+import * as diagnosticsChannelShim from './shims/diagnostics_channel';
 import { resolve as resolveExports } from 'resolve.exports';
 
 export interface Module {
@@ -188,6 +189,7 @@ const builtinModules: Record<string, unknown> = {
   'inspector/promises': inspectorShim,
   async_hooks: asyncHooksShim,
   domain: domainShim,
+  diagnostics_channel: diagnosticsChannelShim,
 };
 
 /**
