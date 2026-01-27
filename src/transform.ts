@@ -10,16 +10,22 @@ import { VirtualFS } from './virtual-fs';
 // Check if we're in a browser environment
 const isBrowser = typeof window !== 'undefined';
 
-// esbuild instance
-let esbuild: {
+// Type for esbuild module
+type EsbuildModule = {
   transform: (code: string, options: unknown) => Promise<{ code: string }>;
   initialize: (options: unknown) => Promise<void>;
-} | null = null;
+};
 
-let initPromise: Promise<void> | null = null;
+// Use window to store/access esbuild singleton (shared with next-dev-server)
+declare global {
+  interface Window {
+    __esbuild?: EsbuildModule;
+    __esbuildInitPromise?: Promise<void>;
+  }
+}
 
 /**
- * Initialize esbuild-wasm
+ * Initialize esbuild-wasm (reuses existing instance if already initialized)
  */
 export async function initTransformer(): Promise<void> {
   // Skip in non-browser environments (tests)
@@ -28,10 +34,18 @@ export async function initTransformer(): Promise<void> {
     return;
   }
 
-  if (esbuild) return;
-  if (initPromise) return initPromise;
+  // Reuse existing esbuild instance from window (may have been initialized by next-dev-server)
+  if (window.__esbuild) {
+    console.log('[transform] Reusing existing esbuild instance');
+    return;
+  }
 
-  initPromise = (async () => {
+  // If another init is in progress, wait for it
+  if (window.__esbuildInitPromise) {
+    return window.__esbuildInitPromise;
+  }
+
+  window.__esbuildInitPromise = (async () => {
     try {
       console.log('[transform] Loading esbuild-wasm...');
 
@@ -44,20 +58,29 @@ export async function initTransformer(): Promise<void> {
       // esm.sh wraps the module - get the actual esbuild object
       const esbuildMod = mod.default || mod;
 
-      await esbuildMod.initialize({
-        wasmURL: 'https://unpkg.com/esbuild-wasm@0.20.0/esbuild.wasm',
-      });
+      try {
+        await esbuildMod.initialize({
+          wasmURL: 'https://unpkg.com/esbuild-wasm@0.20.0/esbuild.wasm',
+        });
+        console.log('[transform] esbuild-wasm initialized');
+      } catch (initError) {
+        // Handle "already initialized" error gracefully
+        if (initError instanceof Error && initError.message.includes('Cannot call "initialize" more than once')) {
+          console.log('[transform] esbuild-wasm already initialized, reusing');
+        } else {
+          throw initError;
+        }
+      }
 
-      esbuild = esbuildMod;
-      console.log('[transform] esbuild-wasm initialized');
+      window.__esbuild = esbuildMod;
     } catch (error) {
       console.error('[transform] Failed to initialize esbuild:', error);
-      initPromise = null;
+      window.__esbuildInitPromise = undefined;
       throw error;
     }
   })();
 
-  return initPromise;
+  return window.__esbuildInitPromise;
 }
 
 /**
@@ -66,7 +89,7 @@ export async function initTransformer(): Promise<void> {
 export function isTransformerReady(): boolean {
   // In non-browser, we skip transformation
   if (!isBrowser) return true;
-  return esbuild !== null;
+  return window.__esbuild !== undefined;
 }
 
 /**
@@ -81,10 +104,11 @@ export async function transformFile(
     return code;
   }
 
-  if (!esbuild) {
+  if (!window.__esbuild) {
     await initTransformer();
   }
 
+  const esbuild = window.__esbuild;
   if (!esbuild) {
     throw new Error('esbuild not initialized');
   }

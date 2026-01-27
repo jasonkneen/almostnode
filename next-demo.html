@@ -320,6 +320,8 @@
     <style>
       .router-toggle.active { background: #0070f3 !important; }
       .router-toggle:not(.active) { background: #333 !important; }
+      #install-btn:hover:not(:disabled) { background: #16a34a !important; }
+      #install-btn:disabled { background: #333 !important; cursor: wait; }
     </style>
 
     <div class="hmr-indicator" id="hmr-indicator">HMR Update!</div>
@@ -341,6 +343,24 @@
           <button class="file-tab" data-file="/pages/users/[id].jsx">[id].jsx</button>
           <button class="file-tab" data-file="/pages/api/hello.js">api/hello.js</button>
           <button class="file-tab" data-file="/styles/globals.css">globals.css</button>
+        </div>
+
+        <!-- Package Installation Section -->
+        <div id="package-install-section" style="margin-bottom: 12px; padding: 10px; background: #252525; border-radius: 8px; border: 1px solid #333;">
+          <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+            <input
+              type="text"
+              id="package-input"
+              placeholder="Package name (e.g., lodash, date-fns@3.0.0)"
+              style="flex: 1; padding: 8px 10px; background: #111; border: 1px solid #444; border-radius: 6px; color: #eee; font-size: 13px;"
+            />
+            <button id="install-btn" style="padding: 8px 16px; background: #22c55e; white-space: nowrap;">
+              Install
+            </button>
+          </div>
+          <div id="installed-packages" style="font-size: 11px; color: #888;">
+            <span style="color: #666;">Installed:</span> <span id="installed-list">react, react-dom</span>
+          </div>
         </div>
 
         <div class="editor-container">
@@ -385,7 +405,7 @@
     </div>
 
     <script type="module">
-      import { initNextDemo, initNextAppRouterDemo, startNextDevServer, VirtualFS, Runtime } from './src/next-demo.ts';
+      import { initNextDemo, initNextAppRouterDemo, startNextDevServer, VirtualFS, Runtime, PackageManager } from './src/next-demo.ts';
 
       const outputEl = document.getElementById('output');
       const editorEl = document.getElementById('editor');
@@ -403,6 +423,9 @@
       const appRouterBtn = document.getElementById('app-router-btn');
       const urlInput = document.getElementById('url-input');
       const urlGoBtn = document.getElementById('url-go-btn');
+      const packageInput = document.getElementById('package-input');
+      const installBtn = document.getElementById('install-btn');
+      const installedList = document.getElementById('installed-list');
 
       let vfs = null;
       let runtime = null;
@@ -411,6 +434,8 @@
       let currentFile = '/pages/index.jsx';
       let previewActive = false;
       let useAppRouter = false;
+      let packageManager = null;
+      let installedPackages = new Set(['react', 'react-dom']);
 
       // File tabs for each router mode
       const pagesRouterTabs = [
@@ -448,6 +473,236 @@
       function showHmrIndicator() {
         hmrIndicator.classList.add('show');
         setTimeout(() => hmrIndicator.classList.remove('show'), 2000);
+      }
+
+      function updateInstalledList() {
+        installedList.textContent = Array.from(installedPackages).join(', ') || 'none';
+      }
+
+      // Generate a demo page that uses an installed package
+      function createPackageDemoPage(packageName) {
+        // Allow hyphens in name (valid for URLs), only remove other special chars
+        const safeName = packageName.replace(/[^a-zA-Z0-9-]/g, '');
+        // For JS identifiers, also remove hyphens
+        const jsName = packageName.replace(/[^a-zA-Z0-9]/g, '');
+        const pagePath = useAppRouter
+          ? `/app/${safeName}-demo/page.jsx`
+          : `/pages/${safeName}-demo.jsx`;
+
+        // Create directory for App Router
+        if (useAppRouter) {
+          vfs.mkdirSync(`/app/${safeName}-demo`, { recursive: true });
+        }
+
+        // Generate demo content based on package
+        // Use esm.sh for browser-compatible imports
+        let demoContent = '';
+        if (packageName === 'lodash' || packageName.startsWith('lodash')) {
+          demoContent = `'use client';
+
+import React, { useState } from 'react';
+import _ from 'https://esm.sh/lodash@4?dev';
+
+export default function LodashDemo() {
+  const [items] = useState(['apple', 'banana', 'cherry', 'date', 'elderberry']);
+  const [shuffled, setShuffled] = useState(items);
+
+  return (
+    <div className="p-8 max-w-2xl mx-auto">
+      <h1 className="text-3xl font-bold mb-6 text-gray-800">Lodash Demo</h1>
+
+      <div className="bg-white rounded-xl shadow-lg p-6 mb-4">
+        <h2 className="text-xl font-semibold mb-4">Array Shuffle</h2>
+        <div className="flex gap-2 flex-wrap mb-4">
+          {shuffled.map((item, i) => (
+            <span key={i} className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full">
+              {item}
+            </span>
+          ))}
+        </div>
+        <button
+          onClick={() => setShuffled(_.shuffle([...items]))}
+          className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition"
+        >
+          Shuffle with _.shuffle()
+        </button>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-lg p-6">
+        <h3 className="font-semibold mb-2">Other Lodash utilities:</h3>
+        <ul className="text-gray-600 space-y-1">
+          <li>_.uniq([1,1,2,3]) = [{_.uniq([1,1,2,3]).join(', ')}]</li>
+          <li>_.capitalize('hello') = "{_.capitalize('hello')}"</li>
+          <li>_.random(1, 100) = {_.random(1, 100)}</li>
+        </ul>
+      </div>
+    </div>
+  );
+}
+`;
+        } else if (packageName === 'date-fns' || packageName.startsWith('date-fns')) {
+          demoContent = `'use client';
+
+import React from 'react';
+import { format, formatDistance, subDays, addDays } from 'https://esm.sh/date-fns@3?dev';
+
+export default function DateFnsDemo() {
+  const now = new Date();
+
+  return (
+    <div className="p-8 max-w-2xl mx-auto">
+      <h1 className="text-3xl font-bold mb-6 text-gray-800">date-fns Demo</h1>
+
+      <div className="bg-white rounded-xl shadow-lg p-6 mb-4">
+        <h2 className="text-xl font-semibold mb-4">Date Formatting</h2>
+        <div className="space-y-3 text-gray-700">
+          <p><span className="font-medium">Full date:</span> {format(now, 'PPPP')}</p>
+          <p><span className="font-medium">Short:</span> {format(now, 'PP')}</p>
+          <p><span className="font-medium">Time:</span> {format(now, 'pp')}</p>
+          <p><span className="font-medium">Custom:</span> {format(now, 'EEEE, MMMM do yyyy')}</p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-lg p-6">
+        <h2 className="text-xl font-semibold mb-4">Relative Time</h2>
+        <div className="space-y-2 text-gray-700">
+          <p>5 days ago was {formatDistance(subDays(now, 5), now, { addSuffix: true })}</p>
+          <p>In 10 days will be {formatDistance(addDays(now, 10), now, { addSuffix: true })}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+`;
+        } else if (packageName === 'dayjs') {
+          demoContent = `'use client';
+
+import React from 'react';
+import dayjs from 'https://esm.sh/dayjs@1?dev';
+import relativeTime from 'https://esm.sh/dayjs@1/plugin/relativeTime?dev';
+
+dayjs.extend(relativeTime);
+
+export default function DayjsDemo() {
+  const now = dayjs();
+
+  return (
+    <div className="p-8 max-w-2xl mx-auto">
+      <h1 className="text-3xl font-bold mb-6 text-gray-800">Day.js Demo</h1>
+
+      <div className="bg-white rounded-xl shadow-lg p-6 mb-4">
+        <h2 className="text-xl font-semibold mb-4">Date Formatting</h2>
+        <div className="space-y-3 text-gray-700">
+          <p><span className="font-medium">Full:</span> {now.format('dddd, MMMM D, YYYY')}</p>
+          <p><span className="font-medium">Short:</span> {now.format('MM/DD/YYYY')}</p>
+          <p><span className="font-medium">Time:</span> {now.format('h:mm A')}</p>
+          <p><span className="font-medium">ISO:</span> {now.toISOString()}</p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl shadow-lg p-6">
+        <h2 className="text-xl font-semibold mb-4">Relative Time</h2>
+        <div className="space-y-2 text-gray-700">
+          <p>5 days ago: {now.subtract(5, 'day').fromNow()}</p>
+          <p>In 2 weeks: {now.add(2, 'week').fromNow()}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+`;
+        } else {
+          // Generic demo for unknown packages - use esm.sh for browser imports
+          demoContent = `'use client';
+
+import React from 'react';
+// Import your package using esm.sh for browser compatibility:
+// import ${jsName} from 'https://esm.sh/${packageName}?dev';
+
+export default function ${jsName.charAt(0).toUpperCase() + jsName.slice(1)}Demo() {
+  return (
+    <div className="p-8 max-w-2xl mx-auto">
+      <h1 className="text-3xl font-bold mb-6 text-gray-800">${packageName} Demo</h1>
+
+      <div className="bg-white rounded-xl shadow-lg p-6 mb-4">
+        <h2 className="text-xl font-semibold mb-4">Package Installed!</h2>
+        <p className="text-gray-600 mb-4">
+          The <code className="bg-gray-100 px-2 py-1 rounded">${packageName}</code> package
+          has been installed to node_modules.
+        </p>
+        <p className="text-gray-600 mb-2">
+          To use it in the browser, import via esm.sh:
+        </p>
+        <code className="block bg-gray-100 p-2 rounded text-sm">
+          import ${jsName} from 'https://esm.sh/${packageName}?dev';
+        </code>
+      </div>
+
+      <div className="bg-gradient-to-r from-green-400 to-blue-500 text-white rounded-xl p-6">
+        <p className="font-semibold">Tailwind CSS is working!</p>
+        <p className="text-sm opacity-90">This demo uses Tailwind utility classes.</p>
+      </div>
+    </div>
+  );
+}
+`;
+        }
+
+        vfs.writeFileSync(pagePath, demoContent);
+        return { pagePath, routePath: useAppRouter ? `/${safeName}-demo` : `/${safeName}-demo` };
+      }
+
+      async function installPackage(packageSpec) {
+        if (!vfs || !packageManager) {
+          log('Error: VFS or PackageManager not initialized', 'error');
+          return;
+        }
+
+        const packageName = packageSpec.split('@')[0];
+
+        installBtn.disabled = true;
+        installBtn.textContent = 'Installing...';
+
+        try {
+          log(`Installing ${packageSpec}...`);
+
+          const result = await packageManager.install(packageSpec, {
+            onProgress: (message) => {
+              log(message);
+            },
+          });
+
+          // Update installed packages list
+          for (const name of result.added) {
+            installedPackages.add(name);
+          }
+          updateInstalledList();
+
+          // Create a demo page for the package
+          const { pagePath, routePath } = createPackageDemoPage(packageName);
+          log(`Created demo file: ${pagePath}`, 'hmr');
+
+          // Add new tab for the demo file
+          const tabs = useAppRouter ? appRouterTabs : pagesRouterTabs;
+          const newTab = { file: pagePath, label: `${packageName}-demo.jsx` };
+          if (!tabs.find(t => t.file === pagePath)) {
+            tabs.push(newTab);
+            updateFileTabs();
+          }
+
+          // Load the new file in editor
+          loadFile(pagePath);
+
+          log(`Successfully installed ${packageSpec}!`, 'hmr');
+          log(`Navigate to ${routePath} to see the demo.`);
+
+        } catch (error) {
+          log(`Failed to install ${packageSpec}: ${error.message}`, 'error');
+          console.error(error);
+        } finally {
+          installBtn.disabled = false;
+          installBtn.textContent = 'Install';
+        }
       }
 
       function updateFileTabs() {
@@ -559,6 +814,13 @@
           vfs = result.vfs;
           runtime = result.runtime;
 
+          // Create PackageManager
+          packageManager = new PackageManager(vfs, { cwd: '/' });
+
+          // Reset installed packages
+          installedPackages = new Set(['react', 'react-dom']);
+          updateInstalledList();
+
           // Set up file watcher for HMR
           const watchDir = useAppRouter ? '/app' : '/pages';
           vfs.watch(watchDir, { recursive: true }, (eventType, filename) => {
@@ -658,6 +920,25 @@
       urlInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
           navigateToPath(urlInput.value);
+        }
+      });
+
+      // Package installation
+      installBtn.addEventListener('click', () => {
+        const packageSpec = packageInput.value.trim();
+        if (packageSpec) {
+          installPackage(packageSpec);
+          packageInput.value = '';
+        }
+      });
+
+      packageInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const packageSpec = packageInput.value.trim();
+          if (packageSpec) {
+            installPackage(packageSpec);
+            packageInput.value = '';
+          }
         }
       });
 

@@ -7,6 +7,7 @@ import { Runtime } from './runtime';
 import { NextDevServer } from './frameworks/next-dev-server';
 import { getServerBridge } from './server-bridge';
 import { Buffer } from './shims/stream';
+import { PackageManager, InstallOptions, InstallResult } from './npm';
 
 /**
  * Create a Next.js project structure in the virtual filesystem
@@ -202,6 +203,20 @@ export default function Home() {
             from a virtual filesystem. JSX is transformed to JavaScript using esbuild-wasm,
             and React Refresh enables state-preserving HMR.
           </p>
+        </div>
+
+        {/* Tailwind CSS Demo Section */}
+        <div className="mt-6 p-6 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl shadow-lg text-white">
+          <h3 className="text-xl font-bold mb-2">Tailwind CSS is Ready!</h3>
+          <p className="opacity-90 mb-4">
+            This section uses Tailwind utility classes. Install a package to see more Tailwind demos.
+          </p>
+          <div className="flex gap-2">
+            <span className="px-3 py-1 bg-white/20 rounded-full text-sm">p-6</span>
+            <span className="px-3 py-1 bg-white/20 rounded-full text-sm">rounded-xl</span>
+            <span className="px-3 py-1 bg-white/20 rounded-full text-sm">shadow-lg</span>
+            <span className="px-3 py-1 bg-white/20 rounded-full text-sm">gradient</span>
+          </div>
         </div>
       </div>
     </div>
@@ -843,6 +858,20 @@ export default function HomePage() {
           <li>esbuild-wasm for JSX/TypeScript transformation</li>
           <li>React Refresh for state-preserving HMR</li>
         </ul>
+      </div>
+
+      {/* Tailwind CSS Demo Section */}
+      <div className="mt-6 p-6 bg-gradient-to-r from-cyan-500 to-blue-500 rounded-xl shadow-lg text-white">
+        <h3 className="text-xl font-bold mb-2">Tailwind CSS is Ready!</h3>
+        <p className="opacity-90 mb-4">
+          This section uses Tailwind utility classes. Install a package to see more Tailwind demos.
+        </p>
+        <div className="flex gap-2 flex-wrap">
+          <span className="px-3 py-1 bg-white/20 rounded-full text-sm">p-6</span>
+          <span className="px-3 py-1 bg-white/20 rounded-full text-sm">rounded-xl</span>
+          <span className="px-3 py-1 bg-white/20 rounded-full text-sm">shadow-lg</span>
+          <span className="px-3 py-1 bg-white/20 rounded-full text-sm">gradient</span>
+        </div>
       </div>
     </div>
   );
@@ -1519,4 +1548,5 @@ export async function initNextAppRouterDemo(
 }
 
 // Export for use in the demo page
-export { VirtualFS, Runtime, NextDevServer };
+export { VirtualFS, Runtime, NextDevServer, PackageManager };
+export type { InstallOptions, InstallResult };

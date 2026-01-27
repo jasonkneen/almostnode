@@ -89,6 +89,11 @@ export interface NextDevServerOptions extends DevServerOptions {
 }
 
 /**
+ * Tailwind CSS CDN script for runtime JIT compilation
+ */
+const TAILWIND_CDN_SCRIPT = `<script src="https://cdn.tailwindcss.com"></script>`;
+
+/**
  * React Refresh preamble - MUST run before React is loaded
  */
 const REACT_REFRESH_PREAMBLE = `
@@ -1149,6 +1154,7 @@ export class NextDevServer extends DevServer {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Next.js App</title>
+  ${TAILWIND_CDN_SCRIPT}
   ${globalCssLinks.join('\n  ')}
   ${REACT_REFRESH_PREAMBLE}
   <script type="importmap">
@@ -1332,6 +1338,7 @@ export class NextDevServer extends DevServer {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Next.js App</title>
+  ${TAILWIND_CDN_SCRIPT}
   ${globalCssLinks.join('\n  ')}
   ${REACT_REFRESH_PREAMBLE}
   <script type="importmap">
