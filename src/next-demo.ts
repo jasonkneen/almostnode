@@ -461,6 +461,151 @@ export default function Custom404() {
 `
   );
 
+  // Create TypeScript example page
+  vfs.mkdirSync('/pages/typescript', { recursive: true });
+  vfs.writeFileSync(
+    '/pages/typescript/index.tsx',
+    `import React, { useState, useCallback } from 'react';
+import Link from 'next/link';
+
+// TypeScript interfaces
+interface Todo {
+  id: number;
+  text: string;
+  completed: boolean;
+}
+
+interface TodoItemProps {
+  todo: Todo;
+  onToggle: (id: number) => void;
+  onDelete: (id: number) => void;
+}
+
+// Typed component with props
+function TodoItem({ todo, onToggle, onDelete }: TodoItemProps): JSX.Element {
+  return (
+    <div style={{
+      display: 'flex',
+      alignItems: 'center',
+      gap: '0.5rem',
+      padding: '0.5rem',
+      background: todo.completed ? '#e8f5e9' : '#fff',
+      borderRadius: '4px',
+      marginBottom: '0.5rem',
+    }}>
+      <input
+        type="checkbox"
+        checked={todo.completed}
+        onChange={() => onToggle(todo.id)}
+      />
+      <span style={{
+        flex: 1,
+        textDecoration: todo.completed ? 'line-through' : 'none',
+        color: todo.completed ? '#888' : '#000',
+      }}>
+        {todo.text}
+      </span>
+      <button
+        onClick={() => onDelete(todo.id)}
+        style={{ padding: '0.25rem 0.5rem', fontSize: '0.8rem' }}
+      >
+        Delete
+      </button>
+    </div>
+  );
+}
+
+// Main page component with TypeScript
+export default function TypeScriptDemo(): JSX.Element {
+  const [todos, setTodos] = useState<Todo[]>([
+    { id: 1, text: 'Learn TypeScript', completed: true },
+    { id: 2, text: 'Build with Next.js', completed: false },
+    { id: 3, text: 'Try HMR with types', completed: false },
+  ]);
+  const [newTodo, setNewTodo] = useState<string>('');
+
+  const addTodo = useCallback((): void => {
+    if (!newTodo.trim()) return;
+    const todo: Todo = {
+      id: Date.now(),
+      text: newTodo.trim(),
+      completed: false,
+    };
+    setTodos((prev: Todo[]) => [...prev, todo]);
+    setNewTodo('');
+  }, [newTodo]);
+
+  const toggleTodo = useCallback((id: number): void => {
+    setTodos((prev: Todo[]) =>
+      prev.map((t: Todo) => t.id === id ? { ...t, completed: !t.completed } : t)
+    );
+  }, []);
+
+  const deleteTodo = useCallback((id: number): void => {
+    setTodos((prev: Todo[]) => prev.filter((t: Todo) => t.id !== id));
+  }, []);
+
+  const completedCount: number = todos.filter((t: Todo) => t.completed).length;
+
+  return (
+    <div>
+      <nav>
+        <ul>
+          <li><Link href="/">Home</Link></li>
+          <li><Link href="/about">About</Link></li>
+          <li><Link href="/typescript">TypeScript Demo</Link></li>
+        </ul>
+      </nav>
+
+      <div className="container">
+        <h1>TypeScript Demo</h1>
+        <p>This page is written in <code>.tsx</code> with full type annotations!</p>
+
+        <div className="card">
+          <h3>Todo List ({completedCount}/{todos.length} completed)</h3>
+
+          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+            <input
+              type="text"
+              value={newTodo}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewTodo(e.target.value)}
+              onKeyDown={(e: React.KeyboardEvent) => e.key === 'Enter' && addTodo()}
+              placeholder="Add a new todo..."
+              style={{ flex: 1, padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }}
+            />
+            <button onClick={addTodo}>Add</button>
+          </div>
+
+          {todos.map((todo: Todo) => (
+            <TodoItem
+              key={todo.id}
+              todo={todo}
+              onToggle={toggleTodo}
+              onDelete={deleteTodo}
+            />
+          ))}
+        </div>
+
+        <div className="card">
+          <h3>TypeScript Features Used</h3>
+          <ul>
+            <li><code>interface Todo</code> - Type definition</li>
+            <li><code>useState&lt;Todo[]&gt;</code> - Generic state</li>
+            <li><code>JSX.Element</code> - Return type annotation</li>
+            <li><code>React.ChangeEvent</code> - Event types</li>
+            <li><code>useCallback</code> with typed parameters</li>
+          </ul>
+          <p style={{ marginTop: '1rem', color: '#666' }}>
+            Edit this file and save - HMR will preserve your todo list state!
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+`
+  );
+
   // Create public files
   vfs.writeFileSync('/public/favicon.ico', 'favicon placeholder');
   vfs.writeFileSync('/public/robots.txt', 'User-agent: *\nAllow: /');
@@ -925,6 +1070,242 @@ export default function UserPage() {
           In the full Next.js, you'd use <code>useParams()</code> to get the ID,
           but here we're parsing it from <code>usePathname()</code>.
         </p>
+      </div>
+    </div>
+  );
+}
+`
+  );
+
+  // Create TypeScript example page
+  vfs.mkdirSync('/app/typescript', { recursive: true });
+  vfs.writeFileSync(
+    '/app/typescript/page.tsx',
+    `'use client';
+
+import React, { useState, useCallback, useMemo } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+
+// TypeScript types
+type FilterType = 'all' | 'active' | 'completed';
+
+interface Task {
+  id: number;
+  title: string;
+  priority: 'low' | 'medium' | 'high';
+  done: boolean;
+  createdAt: Date;
+}
+
+interface TaskListProps {
+  tasks: Task[];
+  onToggle: (id: number) => void;
+  onDelete: (id: number) => void;
+}
+
+// Priority badge component with typed props
+function PriorityBadge({ priority }: { priority: Task['priority'] }): JSX.Element {
+  const colors: Record<Task['priority'], string> = {
+    low: '#4caf50',
+    medium: '#ff9800',
+    high: '#f44336',
+  };
+
+  return (
+    <span style={{
+      background: colors[priority],
+      color: 'white',
+      padding: '2px 8px',
+      borderRadius: '12px',
+      fontSize: '0.7rem',
+      textTransform: 'uppercase',
+    }}>
+      {priority}
+    </span>
+  );
+}
+
+// Task list component
+function TaskList({ tasks, onToggle, onDelete }: TaskListProps): JSX.Element {
+  if (tasks.length === 0) {
+    return <p style={{ color: '#888', fontStyle: 'italic' }}>No tasks to show</p>;
+  }
+
+  return (
+    <div>
+      {tasks.map((task: Task) => (
+        <div
+          key={task.id}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.75rem',
+            padding: '0.75rem',
+            background: task.done ? '#f5f5f5' : 'white',
+            borderRadius: '8px',
+            marginBottom: '0.5rem',
+            border: '1px solid #e0e0e0',
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={task.done}
+            onChange={() => onToggle(task.id)}
+            style={{ width: '18px', height: '18px' }}
+          />
+          <div style={{ flex: 1 }}>
+            <div style={{
+              textDecoration: task.done ? 'line-through' : 'none',
+              color: task.done ? '#888' : '#333',
+            }}>
+              {task.title}
+            </div>
+            <div style={{ fontSize: '0.75rem', color: '#888', marginTop: '2px' }}>
+              Created: {task.createdAt.toLocaleDateString()}
+            </div>
+          </div>
+          <PriorityBadge priority={task.priority} />
+          <button
+            onClick={() => onDelete(task.id)}
+            style={{
+              padding: '4px 12px',
+              background: '#ffebee',
+              border: 'none',
+              borderRadius: '4px',
+              color: '#c62828',
+              cursor: 'pointer',
+            }}
+          >
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Main page component
+export default function TypeScriptAppRouterDemo(): JSX.Element {
+  const pathname = usePathname();
+  const router = useRouter();
+
+  const [tasks, setTasks] = useState<Task[]>([
+    { id: 1, title: 'Learn TypeScript generics', priority: 'high', done: false, createdAt: new Date() },
+    { id: 2, title: 'Build App Router pages', priority: 'medium', done: true, createdAt: new Date() },
+    { id: 3, title: 'Test HMR with types', priority: 'low', done: false, createdAt: new Date() },
+  ]);
+
+  const [newTask, setNewTask] = useState<string>('');
+  const [priority, setPriority] = useState<Task['priority']>('medium');
+  const [filter, setFilter] = useState<FilterType>('all');
+
+  // Typed callbacks
+  const addTask = useCallback((): void => {
+    if (!newTask.trim()) return;
+
+    const task: Task = {
+      id: Date.now(),
+      title: newTask.trim(),
+      priority,
+      done: false,
+      createdAt: new Date(),
+    };
+
+    setTasks((prev: Task[]) => [...prev, task]);
+    setNewTask('');
+  }, [newTask, priority]);
+
+  const toggleTask = useCallback((id: number): void => {
+    setTasks((prev: Task[]) =>
+      prev.map((t: Task) => t.id === id ? { ...t, done: !t.done } : t)
+    );
+  }, []);
+
+  const deleteTask = useCallback((id: number): void => {
+    setTasks((prev: Task[]) => prev.filter((t: Task) => t.id !== id));
+  }, []);
+
+  // Memoized filtered tasks
+  const filteredTasks = useMemo((): Task[] => {
+    switch (filter) {
+      case 'active': return tasks.filter((t: Task) => !t.done);
+      case 'completed': return tasks.filter((t: Task) => t.done);
+      default: return tasks;
+    }
+  }, [tasks, filter]);
+
+  // Stats with explicit types
+  const stats: { total: number; done: number; pending: number } = useMemo(() => ({
+    total: tasks.length,
+    done: tasks.filter((t: Task) => t.done).length,
+    pending: tasks.filter((t: Task) => !t.done).length,
+  }), [tasks]);
+
+  return (
+    <div className="container">
+      <h1>TypeScript + App Router</h1>
+      <p>Path: <code>{pathname}</code> | This is <code>/app/typescript/page.tsx</code></p>
+
+      <div className="card">
+        <h3>Task Manager ({stats.done}/{stats.total} done)</h3>
+
+        {/* Add task form */}
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+          <input
+            type="text"
+            value={newTask}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewTask(e.target.value)}
+            onKeyDown={(e: React.KeyboardEvent) => e.key === 'Enter' && addTask()}
+            placeholder="Add a new task..."
+            style={{ flex: 1, padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }}
+          />
+          <select
+            value={priority}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+              setPriority(e.target.value as Task['priority'])
+            }
+            style={{ padding: '0.5rem', borderRadius: '4px', border: '1px solid #ccc' }}
+          >
+            <option value="low">Low</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+          <button onClick={addTask}>Add</button>
+        </div>
+
+        {/* Filter buttons */}
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+          {(['all', 'active', 'completed'] as FilterType[]).map((f: FilterType) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              style={{
+                background: filter === f ? '#0070f3' : '#e0e0e0',
+                color: filter === f ? 'white' : '#333',
+              }}
+            >
+              {f.charAt(0).toUpperCase() + f.slice(1)}
+              {f === 'all' ? \` (\${stats.total})\` : f === 'active' ? \` (\${stats.pending})\` : \` (\${stats.done})\`}
+            </button>
+          ))}
+        </div>
+
+        <TaskList tasks={filteredTasks} onToggle={toggleTask} onDelete={deleteTask} />
+      </div>
+
+      <div className="card">
+        <h3>TypeScript Features Demonstrated</h3>
+        <ul>
+          <li><code>type FilterType = 'all' | 'active' | 'completed'</code> - Union types</li>
+          <li><code>interface Task</code> with typed properties</li>
+          <li><code>Task['priority']</code> - Indexed access types</li>
+          <li><code>Record&lt;Task['priority'], string&gt;</code> - Utility types</li>
+          <li><code>useMemo&lt;Task[]&gt;</code> - Generic hooks</li>
+          <li><code>React.ChangeEvent&lt;HTMLInputElement&gt;</code> - Event types</li>
+        </ul>
+        <button onClick={() => router.push('/')} style={{ marginTop: '1rem' }}>
+          ← Back to Home
+        </button>
       </div>
     </div>
   );

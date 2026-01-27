@@ -1,7 +1,38 @@
 {
-  "name": "webcontainer-test",
+  "name": "just-node",
   "version": "1.0.0",
+  "description": "Node.js in your browser. Just like that.",
   "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "node",
+    "browser",
+    "runtime",
+    "virtual-filesystem",
+    "sandbox",
+    "vite",
+    "nextjs",
+    "hmr",
+    "typescript",
+    "webcontainer"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/user/just-node.git"
+  },
+  "homepage": "https://github.com/user/just-node#readme",
+  "bugs": {
+    "url": "https://github.com/user/just-node/issues"
+  },
+  "author": "",
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "vite build",

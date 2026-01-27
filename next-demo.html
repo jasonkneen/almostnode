@@ -173,6 +173,33 @@
         background: white;
       }
 
+      .url-bar {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 10px;
+      }
+
+      .url-input {
+        flex: 1;
+        background: #111;
+        border: 1px solid #333;
+        border-radius: 6px;
+        padding: 8px 12px;
+        font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+        font-size: 13px;
+        color: #eee;
+      }
+
+      .url-input:focus {
+        outline: none;
+        border-color: #0070f3;
+      }
+
+      .url-go-btn {
+        padding: 8px 12px;
+        font-size: 12px;
+      }
+
       .status {
         display: flex;
         align-items: center;
@@ -333,6 +360,11 @@
           <button id="refresh-btn" style="padding: 4px 8px; font-size: 12px;">Refresh</button>
         </div>
 
+        <div class="url-bar">
+          <input type="text" id="url-input" class="url-input" placeholder="/" value="/" />
+          <button id="url-go-btn" class="url-go-btn">Go</button>
+        </div>
+
         <div class="preview-placeholder" id="preview-placeholder">
           <div class="icon">N</div>
           <div>Click <strong>"Start Preview"</strong> to launch the dev server</div>
@@ -369,6 +401,8 @@
       const hmrIndicator = document.getElementById('hmr-indicator');
       const pagesRouterBtn = document.getElementById('pages-router-btn');
       const appRouterBtn = document.getElementById('app-router-btn');
+      const urlInput = document.getElementById('url-input');
+      const urlGoBtn = document.getElementById('url-go-btn');
 
       let vfs = null;
       let runtime = null;
@@ -383,6 +417,7 @@
         { file: '/pages/index.jsx', label: 'index.jsx' },
         { file: '/pages/about.jsx', label: 'about.jsx' },
         { file: '/pages/users/[id].jsx', label: '[id].jsx' },
+        { file: '/pages/typescript/index.tsx', label: '📘 typescript.tsx' },
         { file: '/pages/api/hello.js', label: 'api/hello.js' },
         { file: '/styles/globals.css', label: 'globals.css' },
       ];
@@ -391,9 +426,9 @@
         { file: '/app/page.jsx', label: 'page.jsx' },
         { file: '/app/layout.jsx', label: 'layout.jsx' },
         { file: '/app/about/page.jsx', label: 'about/page.jsx' },
+        { file: '/app/typescript/page.tsx', label: '📘 typescript.tsx' },
         { file: '/app/dashboard/page.jsx', label: 'dashboard/page.jsx' },
-        { file: '/app/dashboard/layout.jsx', label: 'dashboard/layout.jsx' },
-        { file: '/app/users/[id]/page.jsx', label: 'users/[id]/page.jsx' },
+        { file: '/app/users/[id]/page.jsx', label: 'users/[id].jsx' },
         { file: '/app/globals.css', label: 'globals.css' },
       ];
 
@@ -462,6 +497,28 @@
         previewFrame.src = url;
       }
 
+      function navigateToPath(path) {
+        if (!previewActive || !devServerUrl) {
+          log('Preview not running. Click "Start Preview" first.', 'error');
+          return;
+        }
+
+        // Ensure path starts with /
+        if (!path.startsWith('/')) {
+          path = '/' + path;
+        }
+
+        // Remove leading slash since devServerUrl already ends with /
+        const pathWithoutLeadingSlash = path.substring(1);
+
+        // Append path to devServerUrl (which already includes /__virtual__/port/)
+        const fullUrl = devServerUrl + pathWithoutLeadingSlash;
+
+        log(`Navigating to: ${path}`);
+        previewFrame.src = fullUrl;
+        urlInput.value = path;
+      }
+
       async function startPreview() {
         previewPlaceholder.style.display = 'none';
         previewFrame.style.display = 'block';
@@ -469,6 +526,7 @@
 
         if (devServerUrl) {
           previewFrame.src = devServerUrl;
+          urlInput.value = '/';
         }
 
         log('Preview started!');
@@ -491,6 +549,7 @@
           previewFrame.style.display = 'none';
           runBtn.disabled = false;
           outputEl.innerHTML = '';
+          urlInput.value = '/';
 
           // Initialize based on router mode
           const result = useAppRouter
@@ -588,6 +647,17 @@
         if ((e.ctrlKey || e.metaKey) && e.key === 's') {
           e.preventDefault();
           saveFile();
+        }
+      });
+
+      // URL bar navigation
+      urlGoBtn.addEventListener('click', () => {
+        navigateToPath(urlInput.value);
+      });
+
+      urlInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          navigateToPath(urlInput.value);
         }
       });
 
