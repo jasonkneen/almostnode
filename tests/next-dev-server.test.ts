@@ -511,6 +511,177 @@ export default greeting;
   });
 });
 
+describe('NextDevServer environment variables', () => {
+  let vfs: VirtualFS;
+  let server: NextDevServer;
+
+  beforeEach(() => {
+    vfs = new VirtualFS();
+    vfs.mkdirSync('/pages', { recursive: true });
+    vfs.writeFileSync('/pages/index.jsx', '<div>Test</div>');
+  });
+
+  afterEach(() => {
+    if (server) server.stop();
+  });
+
+  describe('setEnv and getEnv', () => {
+    it('should set and get environment variables', () => {
+      server = new NextDevServer(vfs, { port: 3001 });
+
+      server.setEnv('NEXT_PUBLIC_API_URL', 'https://api.example.com');
+      server.setEnv('NEXT_PUBLIC_CONVEX_URL', 'https://my-app.convex.cloud');
+
+      const env = server.getEnv();
+      expect(env.NEXT_PUBLIC_API_URL).toBe('https://api.example.com');
+      expect(env.NEXT_PUBLIC_CONVEX_URL).toBe('https://my-app.convex.cloud');
+    });
+
+    it('should accept env vars via constructor options', () => {
+      server = new NextDevServer(vfs, {
+        port: 3001,
+        env: {
+          NEXT_PUBLIC_API_URL: 'https://api.example.com',
+          SECRET_KEY: 'should-not-be-exposed',
+        },
+      });
+
+      const env = server.getEnv();
+      expect(env.NEXT_PUBLIC_API_URL).toBe('https://api.example.com');
+      expect(env.SECRET_KEY).toBe('should-not-be-exposed');
+    });
+
+    it('should return a copy of env vars (not the original object)', () => {
+      server = new NextDevServer(vfs, {
+        port: 3001,
+        env: { NEXT_PUBLIC_TEST: 'value' },
+      });
+
+      const env1 = server.getEnv();
+      env1.NEXT_PUBLIC_TEST = 'modified';
+
+      const env2 = server.getEnv();
+      expect(env2.NEXT_PUBLIC_TEST).toBe('value');
+    });
+
+    it('should update env vars at runtime', () => {
+      server = new NextDevServer(vfs, { port: 3001 });
+
+      expect(server.getEnv().NEXT_PUBLIC_URL).toBeUndefined();
+
+      server.setEnv('NEXT_PUBLIC_URL', 'https://example.com');
+
+      expect(server.getEnv().NEXT_PUBLIC_URL).toBe('https://example.com');
+    });
+  });
+
+  describe('NEXT_PUBLIC_* injection into HTML', () => {
+    it('should inject NEXT_PUBLIC_* vars into HTML', async () => {
+      server = new NextDevServer(vfs, {
+        port: 3001,
+        env: {
+          NEXT_PUBLIC_API_URL: 'https://api.example.com',
+          NEXT_PUBLIC_CONVEX_URL: 'https://my-app.convex.cloud',
+        },
+      });
+
+      const response = await server.handleRequest('GET', '/', {});
+      const html = response.body.toString();
+
+      expect(html).toContain('window.process');
+      expect(html).toContain('window.process.env');
+      expect(html).toContain('NEXT_PUBLIC_API_URL');
+      expect(html).toContain('https://api.example.com');
+      expect(html).toContain('NEXT_PUBLIC_CONVEX_URL');
+      expect(html).toContain('https://my-app.convex.cloud');
+    });
+
+    it('should NOT inject non-NEXT_PUBLIC_* vars into HTML', async () => {
+      server = new NextDevServer(vfs, {
+        port: 3001,
+        env: {
+          NEXT_PUBLIC_VISIBLE: 'visible',
+          SECRET_KEY: 'secret-should-not-appear',
+          DATABASE_URL: 'postgres://secret',
+        },
+      });
+
+      const response = await server.handleRequest('GET', '/', {});
+      const html = response.body.toString();
+
+      expect(html).toContain('NEXT_PUBLIC_VISIBLE');
+      expect(html).toContain('visible');
+      expect(html).not.toContain('SECRET_KEY');
+      expect(html).not.toContain('secret-should-not-appear');
+      expect(html).not.toContain('DATABASE_URL');
+      expect(html).not.toContain('postgres://secret');
+    });
+
+    it('should not inject env script when no NEXT_PUBLIC_* vars exist', async () => {
+      server = new NextDevServer(vfs, {
+        port: 3001,
+        env: {
+          SECRET_KEY: 'secret',
+        },
+      });
+
+      const response = await server.handleRequest('GET', '/', {});
+      const html = response.body.toString();
+
+      // Should not have the env injection script
+      expect(html).not.toContain('NEXT_PUBLIC_');
+      expect(html).not.toContain('SECRET_KEY');
+    });
+
+    it('should reflect setEnv updates in subsequent HTML', async () => {
+      server = new NextDevServer(vfs, { port: 3001 });
+
+      // First request - no env vars
+      const response1 = await server.handleRequest('GET', '/', {});
+      expect(response1.body.toString()).not.toContain('NEXT_PUBLIC_CONVEX_URL');
+
+      // Set env var
+      server.setEnv('NEXT_PUBLIC_CONVEX_URL', 'https://my-app.convex.cloud');
+
+      // Second request - should have the env var
+      const response2 = await server.handleRequest('GET', '/', {});
+      const html2 = response2.body.toString();
+      expect(html2).toContain('NEXT_PUBLIC_CONVEX_URL');
+      expect(html2).toContain('https://my-app.convex.cloud');
+    });
+  });
+
+  describe('App Router env injection', () => {
+    beforeEach(() => {
+      // Set up App Router structure
+      vfs.mkdirSync('/app', { recursive: true });
+      vfs.writeFileSync('/app/page.jsx', '<div>App Router Page</div>');
+      vfs.writeFileSync('/app/layout.jsx', `
+        export default function Layout({ children }) {
+          return <div>{children}</div>;
+        }
+      `);
+    });
+
+    it('should inject NEXT_PUBLIC_* vars in App Router HTML', async () => {
+      server = new NextDevServer(vfs, {
+        port: 3001,
+        preferAppRouter: true,
+        env: {
+          NEXT_PUBLIC_APP_NAME: 'My App',
+        },
+      });
+
+      const response = await server.handleRequest('GET', '/', {});
+      const html = response.body.toString();
+
+      expect(html).toContain('window.process');
+      expect(html).toContain('NEXT_PUBLIC_APP_NAME');
+      expect(html).toContain('My App');
+    });
+  });
+});
+
 describe('NextDevServer with ServerBridge integration', () => {
   let vfs: VirtualFS;
   let server: NextDevServer;
