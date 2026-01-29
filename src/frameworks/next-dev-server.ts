@@ -86,6 +86,8 @@ export interface NextDevServerOptions extends DevServerOptions {
   publicDir?: string;
   /** Prefer App Router over Pages Router (default: auto-detect) */
   preferAppRouter?: boolean;
+  /** Environment variables (NEXT_PUBLIC_* are available in browser code via process.env) */
+  env?: Record<string, string>;
 }
 
 /**
@@ -720,8 +722,12 @@ export class NextDevServer extends DevServer {
   /** BroadcastChannel for HMR updates to iframe */
   private hmrChannel: BroadcastChannel | null = null;
 
+  /** Store options for later access (e.g., env vars) */
+  private options: NextDevServerOptions;
+
   constructor(vfs: VirtualFS, options: NextDevServerOptions) {
     super(vfs, options);
+    this.options = options;
     this.pagesDir = options.pagesDir || '/pages';
     this.appDir = options.appDir || '/app';
     this.publicDir = options.publicDir || '/public';
@@ -734,6 +740,47 @@ export class NextDevServer extends DevServer {
       // Prefer App Router if /app directory exists with a page.jsx file
       this.useAppRouter = this.hasAppRouter();
     }
+  }
+
+  /**
+   * Set an environment variable at runtime
+   * NEXT_PUBLIC_* variables will be available via process.env in browser code
+   */
+  setEnv(key: string, value: string): void {
+    this.options.env = this.options.env || {};
+    this.options.env[key] = value;
+  }
+
+  /**
+   * Get current environment variables
+   */
+  getEnv(): Record<string, string> {
+    return { ...this.options.env };
+  }
+
+  /**
+   * Generate a script tag that defines process.env with NEXT_PUBLIC_* variables
+   * This makes environment variables available to browser code via process.env.NEXT_PUBLIC_*
+   */
+  private generateEnvScript(): string {
+    const env = this.options.env || {};
+
+    // Filter for NEXT_PUBLIC_* variables only (Next.js convention)
+    const publicEnvVars = Object.entries(env)
+      .filter(([key]) => key.startsWith('NEXT_PUBLIC_'))
+      .reduce((acc, [k, v]) => ({ ...acc, [k]: v }), {} as Record<string, string>);
+
+    // Return empty string if no public env vars
+    if (Object.keys(publicEnvVars).length === 0) {
+      return '';
+    }
+
+    return `<script>
+  // NEXT_PUBLIC_* environment variables (injected by NextDevServer)
+  window.process = window.process || {};
+  window.process.env = window.process.env || {};
+  Object.assign(window.process.env, ${JSON.stringify(publicEnvVars)});
+</script>`;
   }
 
   /**
@@ -1363,12 +1410,17 @@ export class NextDevServer extends DevServer {
       nestedJsx = `React.createElement(Layout${i}, null, ${nestedJsx})`;
     }
 
+    // Generate env script for NEXT_PUBLIC_* variables
+    const envScript = this.generateEnvScript();
+
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <base href="${virtualPrefix}/">
   <title>Next.js App</title>
+  ${envScript}
   ${TAILWIND_CDN_SCRIPT}
   ${CORS_PROXY_SCRIPT}
   ${globalCssLinks.join('\n  ')}
@@ -1381,6 +1433,10 @@ export class NextDevServer extends DevServer {
       "react-dom": "https://esm.sh/react-dom@18.2.0?dev",
       "react-dom/": "https://esm.sh/react-dom@18.2.0&dev/",
       "react-dom/client": "https://esm.sh/react-dom@18.2.0/client?dev",
+      "convex/react": "https://esm.sh/convex@1.21.0/react?external=react",
+      "convex/server": "https://esm.sh/convex@1.21.0/server",
+      "convex/values": "https://esm.sh/convex@1.21.0/values",
+      "convex/_generated/api": "${virtualPrefix}/convex/_generated/api.ts",
       "next/link": "${virtualPrefix}/_next/shims/link.js",
       "next/router": "${virtualPrefix}/_next/shims/router.js",
       "next/head": "${virtualPrefix}/_next/shims/head.js",
@@ -1551,12 +1607,17 @@ export class NextDevServer extends DevServer {
       }
     }
 
+    // Generate env script for NEXT_PUBLIC_* variables
+    const envScript = this.generateEnvScript();
+
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <base href="${virtualPrefix}/">
   <title>Next.js App</title>
+  ${envScript}
   ${TAILWIND_CDN_SCRIPT}
   ${CORS_PROXY_SCRIPT}
   ${globalCssLinks.join('\n  ')}
@@ -1616,11 +1677,13 @@ export class NextDevServer extends DevServer {
    * Serve a basic 404 page
    */
   private serve404Page(): ResponseData {
+    const virtualPrefix = `/__virtual__/${this.port}`;
     const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <base href="${virtualPrefix}/">
   <title>404 - Page Not Found</title>
   <style>
     body {
@@ -1716,12 +1779,16 @@ export class NextDevServer extends DevServer {
       throw new Error('esbuild not available');
     }
 
+    // Remove CSS imports before transformation - they are handled via <link> tags
+    // CSS imports in ESM would fail with MIME type errors
+    const codeWithoutCssImports = this.stripCssImports(code);
+
     let loader: 'js' | 'jsx' | 'ts' | 'tsx' = 'js';
     if (filename.endsWith('.jsx')) loader = 'jsx';
     else if (filename.endsWith('.tsx')) loader = 'tsx';
     else if (filename.endsWith('.ts')) loader = 'ts';
 
-    const result = await esbuild.transform(code, {
+    const result = await esbuild.transform(codeWithoutCssImports, {
       loader,
       format: 'esm',
       target: 'esnext',
@@ -1737,6 +1804,16 @@ export class NextDevServer extends DevServer {
     }
 
     return result.code;
+  }
+
+  /**
+   * Strip CSS imports from code (they are loaded via <link> tags instead)
+   * Handles: import './styles.css', import '../globals.css', etc.
+   */
+  private stripCssImports(code: string): string {
+    // Match import statements for CSS files (with or without semicolon)
+    // Handles: import './styles.css'; import "./globals.css" import '../path/file.css'
+    return code.replace(/import\s+['"][^'"]+\.css['"]\s*;?/g, '// CSS import removed (loaded via <link>)');
   }
 
   /**
