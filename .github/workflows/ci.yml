@@ -26,11 +26,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build library
+        run: npm run build:lib
+
       - name: Run type check
         run: npm run build:types
 
       - name: Run tests
         run: npm run test:run
-
-      - name: Build library
-        run: npm run build:lib
