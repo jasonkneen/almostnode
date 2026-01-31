@@ -301,6 +301,15 @@ export default function handler(req, res) {
 
       expect(html).toContain('/pages/about.jsx');
     });
+
+    it('should defer reload in popstate handler using setTimeout', async () => {
+      const response = await server.handleRequest('GET', '/', {});
+      const html = response.body.toString();
+
+      // The fix wraps window.location.reload() in setTimeout to defer it
+      // outside React's update cycle, preventing the reload from being blocked
+      expect(html).toContain('setTimeout(() => window.location.reload(), 0)');
+    });
   });
 
   describe('Next.js shims', () => {

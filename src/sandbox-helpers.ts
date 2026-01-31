@@ -5,13 +5,74 @@
  * to provide browser-enforced isolation from the main application.
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
+
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore - import.meta.url is available in ESM
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Get the contents of the service worker file.
+ * Returns null if the file is not found (e.g., running in browser).
+ */
+function getServiceWorkerContent(): string | null {
+  try {
+    // Try dist directory first (when running from built package)
+    let swPath = path.join(__dirname, '__sw__.js');
+    if (fs.existsSync(swPath)) {
+      return fs.readFileSync(swPath, 'utf-8');
+    }
+    // Try relative to src (when running from source)
+    swPath = path.join(__dirname, '../dist/__sw__.js');
+    if (fs.existsSync(swPath)) {
+      return fs.readFileSync(swPath, 'utf-8');
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export interface SandboxHtmlOptions {
+  /**
+   * URL to load almostnode from (e.g., unpkg, jsdelivr, or your CDN)
+   * @default 'https://unpkg.com/almostnode/dist/index.js'
+   */
+  almostnodeUrl?: string;
+  /**
+   * Whether to include service worker registration for dev server support.
+   * When true, the sandbox can run ViteDevServer/NextDevServer with URL access.
+   * @default true
+   */
+  includeServiceWorker?: boolean;
+}
+
 /**
  * HTML template for the sandbox page.
  * This loads almostnode and handles postMessage communication with the parent.
  *
- * @param justNodeUrl - URL to load almostnode from (e.g., unpkg, jsdelivr, or your CDN)
+ * @param options - Configuration options or legacy URL string
  */
-export function getSandboxHtml(justNodeUrl = 'https://unpkg.com/almostnode/dist/index.js'): string {
+export function getSandboxHtml(options: SandboxHtmlOptions | string = {}): string {
+  // Support legacy string argument
+  const opts: SandboxHtmlOptions = typeof options === 'string'
+    ? { almostnodeUrl: options }
+    : options;
+
+  const almostnodeUrl = opts.almostnodeUrl ?? 'https://unpkg.com/almostnode/dist/index.js';
+  const includeServiceWorker = opts.includeServiceWorker ?? true;
+
+  const serviceWorkerScript = includeServiceWorker ? `
+  // Register service worker for dev server support
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/__sw__.js', { scope: '/' })
+      .then(reg => console.log('[Sandbox] Service worker registered'))
+      .catch(err => console.warn('[Sandbox] Service worker registration failed:', err));
+  }
+` : '';
+
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -20,7 +81,8 @@ export function getSandboxHtml(justNodeUrl = 'https://unpkg.com/almostnode/dist/
 </head>
 <body>
 <script type="module">
-  import { VirtualFS, Runtime } from '${justNodeUrl}';
+  import { VirtualFS, Runtime } from '${almostnodeUrl}';
+${serviceWorkerScript}
 
   let vfs = null;
   let runtime = null;
@@ -122,29 +184,59 @@ export function getSandboxVercelConfig(): object {
   };
 }
 
+export interface GenerateSandboxFilesOptions extends SandboxHtmlOptions {
+  // Inherits almostnodeUrl and includeServiceWorker from SandboxHtmlOptions
+}
+
 /**
- * Generate all files needed for deploying a sandbox to Vercel.
+ * Generate all files needed for deploying a sandbox to Vercel or other platforms.
  *
- * @param justNodeUrl - URL to load almostnode from
+ * @param options - Configuration options or legacy URL string
  * @returns Object with file names as keys and content as values
  *
  * @example
  * ```typescript
- * import { generateSandboxFiles } from 'almostnode/sandbox-helpers';
+ * import { generateSandboxFiles } from 'almostnode';
+ * import fs from 'fs';
  *
  * const files = generateSandboxFiles();
+ *
  * // Write files to sandbox/ directory
+ * fs.mkdirSync('sandbox', { recursive: true });
+ * for (const [filename, content] of Object.entries(files)) {
+ *   fs.writeFileSync(`sandbox/${filename}`, content);
+ * }
+ *
  * // Deploy to Vercel: cd sandbox && vercel --prod
  * ```
  */
-export function generateSandboxFiles(justNodeUrl?: string): {
+export function generateSandboxFiles(options: GenerateSandboxFilesOptions | string = {}): {
   'index.html': string;
   'vercel.json': string;
+  '__sw__.js'?: string;
 } {
-  return {
-    'index.html': getSandboxHtml(justNodeUrl),
+  // Support legacy string argument
+  const opts: GenerateSandboxFilesOptions = typeof options === 'string'
+    ? { almostnodeUrl: options }
+    : options;
+
+  const includeServiceWorker = opts.includeServiceWorker ?? true;
+  const swContent = includeServiceWorker ? getServiceWorkerContent() : null;
+
+  const files: {
+    'index.html': string;
+    'vercel.json': string;
+    '__sw__.js'?: string;
+  } = {
+    'index.html': getSandboxHtml(opts),
     'vercel.json': JSON.stringify(getSandboxVercelConfig(), null, 2),
   };
+
+  if (swContent) {
+    files['__sw__.js'] = swContent;
+  }
+
+  return files;
 }
 
 /**

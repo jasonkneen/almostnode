@@ -38,6 +38,14 @@ export interface BridgeOptions {
   onServerReady?: (port: number, url: string) => void;
 }
 
+export interface InitServiceWorkerOptions {
+  /**
+   * The URL path to the service worker file
+   * @default '/__sw__.js'
+   */
+  swUrl?: string;
+}
+
 /**
  * Server Bridge manages virtual HTTP servers and routes requests
  */
@@ -146,14 +154,18 @@ export class ServerBridge extends EventEmitter {
 
   /**
    * Initialize Service Worker communication
+   * @param options - Configuration options for the service worker
+   * @param options.swUrl - Custom URL path to the service worker file (default: '/__sw__.js')
    */
-  async initServiceWorker(): Promise<void> {
+  async initServiceWorker(options?: InitServiceWorkerOptions): Promise<void> {
     if (!('serviceWorker' in navigator)) {
       throw new Error('Service Workers not supported');
     }
 
+    const swUrl = options?.swUrl ?? '/__sw__.js';
+
     // Register service worker
-    const registration = await navigator.serviceWorker.register('/__sw__.js', {
+    const registration = await navigator.serviceWorker.register(swUrl, {
       scope: '/',
     });
 

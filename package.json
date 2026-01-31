@@ -40,6 +40,26 @@
         "types": "./dist/index.d.ts",
         "default": "./dist/index.cjs"
       }
+    },
+    "./vite": {
+      "import": {
+        "types": "./dist/vite-plugin.d.ts",
+        "default": "./dist/vite-plugin.mjs"
+      },
+      "require": {
+        "types": "./dist/vite-plugin.d.ts",
+        "default": "./dist/vite-plugin.cjs"
+      }
+    },
+    "./next": {
+      "import": {
+        "types": "./dist/next-plugin.d.ts",
+        "default": "./dist/next-plugin.mjs"
+      },
+      "require": {
+        "types": "./dist/next-plugin.d.ts",
+        "default": "./dist/next-plugin.cjs"
+      }
     }
   },
   "files": [

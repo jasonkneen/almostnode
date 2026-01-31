@@ -27,6 +27,7 @@ export * as util from './shims/util';
 export * as npm from './npm';
 export { PackageManager, install } from './npm';
 export { ServerBridge, getServerBridge, resetServerBridge } from './server-bridge';
+export type { InitServiceWorkerOptions } from './server-bridge';
 // Dev servers
 export { DevServer } from './dev-server';
 export type { DevServerOptions, ResponseData, HMRUpdate } from './dev-server';

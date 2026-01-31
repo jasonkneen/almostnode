@@ -139,6 +139,156 @@ bridge.registerServer(server, 3000);
 
 ---
 
+## Service Worker Setup
+
+almostnode uses a Service Worker to intercept HTTP requests and route them to virtual dev servers (e.g., `ViteDevServer`, `NextDevServer`).
+
+> **Note:** The service worker is only needed if you're using dev servers with URL access (e.g., `/__virtual__/3000/`). If you're only executing code with `runtime.execute()`, you don't need the service worker.
+
+### Which Setup Do I Need?
+
+| Use Case | Setup Required |
+|----------|----------------|
+| Cross-origin sandbox (recommended for untrusted code) | `generateSandboxFiles()` - includes everything |
+| Same-origin with Vite | `almostnodePlugin` from `almostnode/vite` |
+| Same-origin with Next.js | `getServiceWorkerContent` from `almostnode/next` |
+| Same-origin with other frameworks | Manual copy to public directory |
+
+---
+
+### Option 1: Cross-Origin Sandbox (Recommended)
+
+When using `createRuntime()` with a cross-origin `sandbox` URL, the service worker must be deployed **with the sandbox**, not your main app.
+
+The `generateSandboxFiles()` helper generates all required files:
+
+```typescript
+import { generateSandboxFiles } from 'almostnode';
+import fs from 'fs';
+
+const files = generateSandboxFiles();
+
+// Creates: index.html, vercel.json, __sw__.js
+fs.mkdirSync('sandbox', { recursive: true });
+for (const [filename, content] of Object.entries(files)) {
+  fs.writeFileSync(`sandbox/${filename}`, content);
+}
+
+// Deploy to a different origin:
+// cd sandbox && vercel --prod
+```
+
+**Generated files:**
+| File | Purpose |
+|------|---------|
+| `index.html` | Sandbox page that loads almostnode and registers the service worker |
+| `vercel.json` | CORS headers for cross-origin iframe embedding |
+| `__sw__.js` | Service worker for intercepting dev server requests |
+
+See [Sandbox Setup](#sandbox-setup) for full deployment instructions.
+
+---
+
+### Option 2: Same-Origin with Vite
+
+For trusted code using `dangerouslyAllowSameOrigin: true`:
+
+```typescript
+// vite.config.ts
+import { defineConfig } from 'vite';
+import { almostnodePlugin } from 'almostnode/vite';
+
+export default defineConfig({
+  plugins: [almostnodePlugin()]
+});
+```
+
+The plugin serves `/__sw__.js` automatically during development.
+
+**Custom path:**
+
+```typescript
+// vite.config.ts
+almostnodePlugin({ swPath: '/custom/__sw__.js' })
+
+// Then in your app:
+await bridge.initServiceWorker({ swUrl: '/custom/__sw__.js' });
+```
+
+---
+
+### Option 3: Same-Origin with Next.js
+
+For trusted code using `dangerouslyAllowSameOrigin: true`:
+
+**App Router:**
+
+```typescript
+// app/__sw__.js/route.ts
+import { getServiceWorkerContent } from 'almostnode/next';
+
+export async function GET() {
+  return new Response(getServiceWorkerContent(), {
+    headers: {
+      'Content-Type': 'application/javascript',
+      'Cache-Control': 'no-cache',
+    },
+  });
+}
+```
+
+**Pages Router:**
+
+```typescript
+// pages/api/__sw__.ts
+import { getServiceWorkerContent } from 'almostnode/next';
+import type { NextApiRequest, NextApiResponse } from 'next';
+
+export default function handler(req: NextApiRequest, res: NextApiResponse) {
+  res.setHeader('Content-Type', 'application/javascript');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.send(getServiceWorkerContent());
+}
+```
+
+**Initialize with the correct path:**
+
+```typescript
+// App Router (file-based route)
+await bridge.initServiceWorker({ swUrl: '/__sw__.js' });
+
+// Pages Router (API route)
+await bridge.initServiceWorker({ swUrl: '/api/__sw__' });
+```
+
+**Available exports from `almostnode/next`:**
+
+| Export | Description |
+|--------|-------------|
+| `getServiceWorkerContent()` | Returns the service worker file content as a string |
+| `getServiceWorkerPath()` | Returns the absolute path to the service worker file |
+
+---
+
+### Option 4: Manual Setup (Other Frameworks)
+
+Copy the service worker to your public directory:
+
+```bash
+cp node_modules/almostnode/dist/__sw__.js ./public/
+```
+
+Or programmatically:
+
+```typescript
+import { getServiceWorkerPath } from 'almostnode/next';
+import fs from 'fs';
+
+fs.copyFileSync(getServiceWorkerPath(), './public/__sw__.js');
+```
+
+---
+
 ## Comparison with WebContainers
 
 | Feature | almostnode | WebContainers |
@@ -312,11 +462,23 @@ For running untrusted code securely, deploy a cross-origin sandbox. The key requ
 
 ```typescript
 import { generateSandboxFiles } from 'almostnode';
+import fs from 'fs';
 
 const files = generateSandboxFiles();
-// Write files['index.html'] and files['vercel.json'] to a directory
+// Generates: index.html, vercel.json, __sw__.js
+
+fs.mkdirSync('sandbox', { recursive: true });
+for (const [filename, content] of Object.entries(files)) {
+  fs.writeFileSync(`sandbox/${filename}`, content);
+}
+
 // Deploy: cd sandbox && vercel --prod
 ```
+
+The generated files include:
+- `index.html` - Sandbox page with service worker registration
+- `vercel.json` - CORS headers for cross-origin iframe embedding
+- `__sw__.js` - Service worker for dev server URL access
 
 ### Manual Setup (Any Platform)
 

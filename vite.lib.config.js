@@ -53,10 +53,14 @@ export default defineConfig({
   },
   build: {
     lib: {
-      entry: resolve(__dirname, 'src/index.ts'),
+      entry: {
+        index: resolve(__dirname, 'src/index.ts'),
+        'vite-plugin': resolve(__dirname, 'src/vite-plugin.ts'),
+        'next-plugin': resolve(__dirname, 'src/next-plugin.ts'),
+      },
       name: 'JustNode',
       formats: ['es', 'cjs'],
-      fileName: (format) => `index.${format === 'es' ? 'mjs' : 'cjs'}`,
+      fileName: (format, entryName) => `${entryName}.${format === 'es' ? 'mjs' : 'cjs'}`,
     },
     rollupOptions: {
       external: [
@@ -66,6 +70,11 @@ export default defineConfig({
         'just-bash',
         'resolve.exports',
         'brotli',
+        // Node.js built-ins for vite-plugin
+        'fs',
+        'path',
+        'url',
+        'vite',
       ],
       output: {
         globals: {

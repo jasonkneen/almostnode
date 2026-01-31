@@ -1846,8 +1846,8 @@ export class NextDevServer extends DevServer {
       React.useEffect(() => {
         const handlePopState = () => {
           setCurrentPath(window.location.pathname);
-          // Re-render the page component
-          window.location.reload();
+          // Defer reload outside React's update cycle
+          setTimeout(() => window.location.reload(), 0);
         };
 
         window.addEventListener('popstate', handlePopState);

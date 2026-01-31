@@ -24,11 +24,29 @@ describe('Sandbox Helpers', () => {
       expect(html).toContain('https://unpkg.com/almostnode/dist/index.js');
     });
 
-    it('should use custom URL when provided', () => {
+    it('should use custom URL when provided as string (legacy)', () => {
       const customUrl = 'https://cdn.example.com/almostnode.js';
       const html = getSandboxHtml(customUrl);
       expect(html).toContain(customUrl);
       expect(html).not.toContain('unpkg.com');
+    });
+
+    it('should use custom URL when provided in options', () => {
+      const customUrl = 'https://cdn.example.com/almostnode.js';
+      const html = getSandboxHtml({ almostnodeUrl: customUrl });
+      expect(html).toContain(customUrl);
+      expect(html).not.toContain('unpkg.com');
+    });
+
+    it('should include service worker registration by default', () => {
+      const html = getSandboxHtml();
+      expect(html).toContain('serviceWorker');
+      expect(html).toContain("register('/__sw__.js'");
+    });
+
+    it('should exclude service worker registration when disabled', () => {
+      const html = getSandboxHtml({ includeServiceWorker: false });
+      expect(html).not.toContain("register('/__sw__.js'");
     });
 
     it('should include VirtualFS and Runtime imports', () => {
@@ -78,10 +96,11 @@ describe('Sandbox Helpers', () => {
   });
 
   describe('generateSandboxFiles', () => {
-    it('should generate index.html and vercel.json', () => {
+    it('should generate index.html, vercel.json, and __sw__.js', () => {
       const files = generateSandboxFiles();
       expect(files).toHaveProperty('index.html');
       expect(files).toHaveProperty('vercel.json');
+      expect(files).toHaveProperty('__sw__.js');
     });
 
     it('should generate valid HTML in index.html', () => {
@@ -94,10 +113,28 @@ describe('Sandbox Helpers', () => {
       expect(() => JSON.parse(files['vercel.json'])).not.toThrow();
     });
 
-    it('should use custom URL in generated HTML', () => {
+    it('should use custom URL in generated HTML (legacy string)', () => {
       const customUrl = 'https://my-cdn.com/almostnode.js';
       const files = generateSandboxFiles(customUrl);
       expect(files['index.html']).toContain(customUrl);
+    });
+
+    it('should use custom URL in generated HTML (options)', () => {
+      const customUrl = 'https://my-cdn.com/almostnode.js';
+      const files = generateSandboxFiles({ almostnodeUrl: customUrl });
+      expect(files['index.html']).toContain(customUrl);
+    });
+
+    it('should include service worker file with valid JS content', () => {
+      const files = generateSandboxFiles();
+      expect(files['__sw__.js']).toBeDefined();
+      expect(files['__sw__.js']).toContain('self');
+    });
+
+    it('should not include service worker when disabled', () => {
+      const files = generateSandboxFiles({ includeServiceWorker: false });
+      expect(files['__sw__.js']).toBeUndefined();
+      expect(files['index.html']).not.toContain("register('/__sw__.js'");
     });
   });
 

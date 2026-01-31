@@ -162,6 +162,61 @@ test.describe('Next.js Demo with Service Worker', () => {
     }
   });
 
+  test('should handle client-side navigation with Link component', async ({ page }) => {
+    await page.goto('/examples/next-demo.html');
+
+    // Wait for initialization
+    await expect(page.locator('#status-text')).toContainText('Ready', { timeout: 10000 });
+
+    // Start preview
+    await page.click('#run-btn');
+    await expect(page.locator('#status-text')).toContainText('Dev server running', { timeout: 30000 });
+
+    // Wait for iframe to fully load (longer wait for React hydration)
+    await page.waitForTimeout(8000);
+
+    const iframe = page.locator('#preview-frame');
+    const iframeHandle = await iframe.elementHandle();
+    const frame = await iframeHandle?.contentFrame();
+
+    if (!frame) {
+      throw new Error('Could not access iframe');
+    }
+
+    // Check that the #__next container exists (React rendered)
+    const hasNext = await frame.locator('#__next').count();
+    console.log('[Iframe has #__next]', hasNext);
+    expect(hasNext).toBeGreaterThan(0);
+
+    // Wait for React to render on home page - look for the nav element first
+    await frame.waitForSelector('nav', { timeout: 15000 });
+
+    // Get the H1 text
+    const initialH1 = await frame.locator('h1').first().textContent();
+    console.log('[Initial page H1]', initialH1);
+    expect(initialH1).toContain('Welcome');
+
+    // Find and click the "About" link in the nav
+    const aboutLink = frame.locator('nav a[href="/about"]').first();
+    await expect(aboutLink).toBeVisible({ timeout: 5000 });
+    console.log('[Clicking About link]');
+    await aboutLink.click();
+
+    // Wait for the page to reload (the fix uses setTimeout to defer the reload)
+    // Need to wait for URL change + full reload + React render
+    await page.waitForTimeout(5000);
+
+    // After navigation, the H1 should change to "About Page"
+    // The page should have reloaded and rendered the About component
+    await frame.waitForSelector('h1', { timeout: 15000 });
+    const newH1 = await frame.locator('h1').first().textContent();
+    console.log('[After navigation H1]', newH1);
+
+    // Verify the page content actually changed
+    expect(newH1).toContain('About');
+    expect(newH1).not.toContain('Welcome');
+  });
+
   test('should call API route', async ({ page }) => {
     await page.goto('/examples/next-demo.html');
 
