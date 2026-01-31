@@ -1,0 +1,44 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.2.0] - 2025-01-31
+
+### Added
+
+- **Vite plugin** (`almostnode/vite`) - Automatically serves the service worker file during development
+  ```typescript
+  import { almostnodePlugin } from 'almostnode/vite';
+  export default defineConfig({ plugins: [almostnodePlugin()] });
+  ```
+
+- **Next.js helpers** (`almostnode/next`) - Utilities for serving the service worker in Next.js apps
+  - `getServiceWorkerContent()` - Returns service worker file content
+  - `getServiceWorkerPath()` - Returns path to service worker file
+
+- **Configurable service worker URL** - `initServiceWorker()` now accepts options
+  ```typescript
+  await bridge.initServiceWorker({ swUrl: '/custom/__sw__.js' });
+  ```
+
+- **Service worker included in sandbox files** - `generateSandboxFiles()` now generates `__sw__.js` along with `index.html` and `vercel.json`, making cross-origin sandbox deployment self-contained
+
+### Changed
+
+- Updated README with comprehensive Service Worker Setup documentation covering all deployment options
+
+## [0.1.0] - 2025-01-30
+
+### Added
+
+- Initial release
+- Virtual file system with Node.js-compatible API
+- 40+ shimmed Node.js modules
+- npm package installation support
+- Vite and Next.js dev servers
+- Hot Module Replacement with React Refresh
+- Cross-origin sandbox support for secure code execution
+- Web Worker runtime option
