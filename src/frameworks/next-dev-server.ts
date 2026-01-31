@@ -816,6 +816,11 @@ export class NextDevServer extends DevServer {
       return this.serveNextShim(pathname);
     }
 
+    // Serve page components for client-side navigation
+    if (pathname.startsWith('/_next/pages/')) {
+      return this.servePageComponent(pathname);
+    }
+
     // Static assets from /_next/static/*
     if (pathname.startsWith('/_next/static/')) {
       return this.serveStaticAsset(pathname);
@@ -893,6 +898,28 @@ export class NextDevServer extends DevServer {
       return this.serveFile(filePath);
     }
     return this.notFound(pathname);
+  }
+
+  /**
+   * Serve page components for client-side navigation
+   * Maps /_next/pages/index.js → /pages/index.jsx (transformed)
+   */
+  private async servePageComponent(pathname: string): Promise<ResponseData> {
+    // Extract the route from /_next/pages/about.js → /about
+    const route = pathname
+      .replace('/_next/pages', '')
+      .replace(/\.js$/, '');
+
+    // Resolve the actual page file
+    const pageFile = this.resolvePageFile(route);
+
+    if (!pageFile) {
+      return this.notFound(pathname);
+    }
+
+    // Transform and serve the page component as a JS module
+    // Use the actual file path (pageFile) for both reading and determining the loader
+    return this.transformAndServe(pageFile, pageFile);
   }
 
   /**
@@ -1837,30 +1864,63 @@ export class NextDevServer extends DevServer {
   <script type="module">
     import React from 'react';
     import ReactDOM from 'react-dom/client';
-    import Page from '${pageModulePath}';
 
-    // Handle client-side navigation
-    function App() {
-      const [currentPath, setCurrentPath] = React.useState(window.location.pathname);
+    const virtualBase = '${virtualPrefix}';
+
+    // Convert URL path to page module path
+    function getPageModulePath(pathname) {
+      let route = pathname;
+      if (route.startsWith(virtualBase)) {
+        route = route.slice(virtualBase.length);
+      }
+      route = route.replace(/^\\/+/, '/') || '/';
+      const modulePath = route === '/' ? '/index' : route;
+      return virtualBase + '/_next/pages' + modulePath + '.js';
+    }
+
+    // Dynamic page loader
+    async function loadPage(pathname) {
+      const modulePath = getPageModulePath(pathname);
+      try {
+        const module = await import(/* @vite-ignore */ modulePath);
+        return module.default;
+      } catch (e) {
+        console.error('[Navigation] Failed to load:', modulePath, e);
+        return null;
+      }
+    }
+
+    // Router component
+    function Router() {
+      const [Page, setPage] = React.useState(null);
+      const [path, setPath] = React.useState(window.location.pathname);
 
       React.useEffect(() => {
-        const handlePopState = () => {
-          setCurrentPath(window.location.pathname);
-          // Defer reload outside React's update cycle
-          setTimeout(() => window.location.reload(), 0);
-        };
-
-        window.addEventListener('popstate', handlePopState);
-        return () => window.removeEventListener('popstate', handlePopState);
+        loadPage(path).then(C => C && setPage(() => C));
       }, []);
 
+      React.useEffect(() => {
+        const handleNavigation = async () => {
+          const newPath = window.location.pathname;
+          if (newPath !== path) {
+            setPath(newPath);
+            const C = await loadPage(newPath);
+            if (C) setPage(() => C);
+          }
+        };
+        window.addEventListener('popstate', handleNavigation);
+        return () => window.removeEventListener('popstate', handleNavigation);
+      }, [path]);
+
+      if (!Page) return null;
       return React.createElement(Page);
     }
 
+    // Mark that we've initialized (for testing no-reload)
+    window.__NEXT_INITIALIZED__ = Date.now();
+
     ReactDOM.createRoot(document.getElementById('__next')).render(
-      React.createElement(React.StrictMode, null,
-        React.createElement(App)
-      )
+      React.createElement(React.StrictMode, null, React.createElement(Router))
     );
   </script>
 </body>

@@ -162,7 +162,7 @@ test.describe('Next.js Demo with Service Worker', () => {
     }
   });
 
-  test('should handle client-side navigation with Link component', async ({ page }) => {
+  test('should handle client-side navigation WITHOUT full reload', async ({ page }) => {
     await page.goto('/examples/next-demo.html');
 
     // Wait for initialization
@@ -196,18 +196,23 @@ test.describe('Next.js Demo with Service Worker', () => {
     console.log('[Initial page H1]', initialH1);
     expect(initialH1).toContain('Welcome');
 
+    // After iframe loads, set a marker to detect reload
+    const initTime = await frame.evaluate(() => {
+      (window as unknown as { __NAV_TEST_MARKER__: number }).__NAV_TEST_MARKER__ = Date.now();
+      return (window as unknown as { __NEXT_INITIALIZED__: number }).__NEXT_INITIALIZED__;
+    });
+    console.log('[Init time]', initTime);
+
     // Find and click the "About" link in the nav
     const aboutLink = frame.locator('nav a[href="/about"]').first();
     await expect(aboutLink).toBeVisible({ timeout: 5000 });
     console.log('[Clicking About link]');
     await aboutLink.click();
 
-    // Wait for the page to reload (the fix uses setTimeout to defer the reload)
-    // Need to wait for URL change + full reload + React render
-    await page.waitForTimeout(5000);
+    // Wait for client-side navigation to complete
+    await page.waitForTimeout(2000);
 
     // After navigation, the H1 should change to "About Page"
-    // The page should have reloaded and rendered the About component
     await frame.waitForSelector('h1', { timeout: 15000 });
     const newH1 = await frame.locator('h1').first().textContent();
     console.log('[After navigation H1]', newH1);
@@ -215,6 +220,19 @@ test.describe('Next.js Demo with Service Worker', () => {
     // Verify the page content actually changed
     expect(newH1).toContain('About');
     expect(newH1).not.toContain('Welcome');
+
+    // Verify NO full reload happened (marker should still exist)
+    const markerAfterNav = await frame.evaluate(() => {
+      return (window as unknown as { __NAV_TEST_MARKER__: number }).__NAV_TEST_MARKER__;
+    });
+    expect(markerAfterNav).toBeTruthy(); // Would be undefined if page reloaded
+    console.log('[Marker after nav]', markerAfterNav, '- NO RELOAD ✓');
+
+    // Also check init time didn't change
+    const initTimeAfter = await frame.evaluate(() => {
+      return (window as unknown as { __NEXT_INITIALIZED__: number }).__NEXT_INITIALIZED__;
+    });
+    expect(initTimeAfter).toBe(initTime);
   });
 
   test('should call API route', async ({ page }) => {

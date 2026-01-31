@@ -111,7 +111,10 @@ export default function NotFound() {
 
       expect(response.statusCode).toBe(200);
       expect(response.headers['Content-Type']).toBe('text/html; charset=utf-8');
-      expect(response.body.toString()).toContain('/pages/about.jsx');
+      // New dynamic router uses /_next/pages/ for page loading
+      const html = response.body.toString();
+      expect(html).toContain('/_next/pages');
+      expect(html).toContain('function Router()');
     });
 
     it('should resolve /users/123 to pages/users/[id].jsx', async () => {
@@ -119,7 +122,10 @@ export default function NotFound() {
 
       expect(response.statusCode).toBe(200);
       expect(response.headers['Content-Type']).toBe('text/html; charset=utf-8');
-      expect(response.body.toString()).toContain('/pages/users/[id].jsx');
+      // New dynamic router uses /_next/pages/ for page loading
+      const html = response.body.toString();
+      expect(html).toContain('/_next/pages');
+      expect(html).toContain('function Router()');
     });
 
     it('should return 404 for non-existent pages', async () => {
@@ -141,7 +147,10 @@ export default function TypeScriptPage(): JSX.Element {
       const response = await server.handleRequest('GET', '/typescript', {});
 
       expect(response.statusCode).toBe(200);
-      expect(response.body.toString()).toContain('/pages/typescript.tsx');
+      // New dynamic router uses /_next/pages/ for page loading
+      const html = response.body.toString();
+      expect(html).toContain('/_next/pages');
+      expect(html).toContain('function Router()');
     });
 
     it('should handle index files in subdirectories', async () => {
@@ -158,7 +167,10 @@ export default function BlogIndex() {
       const response = await server.handleRequest('GET', '/blog', {});
 
       expect(response.statusCode).toBe(200);
-      expect(response.body.toString()).toContain('/pages/blog/index.jsx');
+      // New dynamic router uses /_next/pages/ for page loading
+      const html = response.body.toString();
+      expect(html).toContain('/_next/pages');
+      expect(html).toContain('function Router()');
     });
   });
 
@@ -299,16 +311,21 @@ export default function handler(req, res) {
       const response = await server.handleRequest('GET', '/about', {});
       const html = response.body.toString();
 
-      expect(html).toContain('/pages/about.jsx');
+      // New dynamic router uses /_next/pages/ for page loading
+      expect(html).toContain('/_next/pages');
     });
 
-    it('should defer reload in popstate handler using setTimeout', async () => {
+    it('should use client-side navigation instead of full reload', async () => {
       const response = await server.handleRequest('GET', '/', {});
       const html = response.body.toString();
 
-      // The fix wraps window.location.reload() in setTimeout to defer it
-      // outside React's update cycle, preventing the reload from being blocked
-      expect(html).toContain('setTimeout(() => window.location.reload(), 0)');
+      // The new implementation uses dynamic imports for client-side navigation
+      // instead of reloading the page on popstate events
+      expect(html).toContain('function Router()');
+      expect(html).toContain('async function loadPage(pathname)');
+      expect(html).toContain("window.addEventListener('popstate'");
+      // Should NOT contain the old reload behavior
+      expect(html).not.toContain('window.location.reload()');
     });
   });
 
@@ -469,8 +486,11 @@ export default greeting;
 
       expect(response.statusCode).toBe(404);
       expect(response.headers['Content-Type']).toBe('text/html; charset=utf-8');
-      // Should use custom 404 page, not the default
-      expect(response.body.toString()).toContain('/pages/404.jsx');
+      // Should use custom 404 page with dynamic page loading
+      // The new router loads pages via /_next/pages/ virtual endpoint
+      const html = response.body.toString();
+      expect(html).toContain('/_next/pages');
+      expect(html).toContain('function Router()');
     });
 
     it('should use default 404 when custom page not available', async () => {
