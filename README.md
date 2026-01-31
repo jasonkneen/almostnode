@@ -64,6 +64,26 @@ const result = container.execute(`
 console.log(result.exports); // "Hello from the browser!"
 ```
 
+> **⚠️ Security Warning:** The example above runs code on the main thread with full access to your page. **Do not use `createContainer()` or `container.execute()` with untrusted code.** For untrusted code, use `createRuntime()` with a cross-origin sandbox - see [Sandbox Setup](#sandbox-setup).
+
+### Running Untrusted Code Securely
+
+```typescript
+import { createRuntime, VirtualFS } from 'almostnode';
+
+const vfs = new VirtualFS();
+
+// Create a secure runtime with cross-origin isolation
+const runtime = await createRuntime(vfs, {
+  sandbox: 'https://your-sandbox.vercel.app', // Deploy with generateSandboxFiles()
+});
+
+// Now it's safe to run untrusted code
+const result = await runtime.execute(untrustedCode);
+```
+
+See [Sandbox Setup](#sandbox-setup) for deployment instructions.
+
 ### Working with Virtual File System
 
 ```typescript
