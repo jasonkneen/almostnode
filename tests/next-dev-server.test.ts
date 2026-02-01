@@ -1317,3 +1317,162 @@ describe('NextDevServer mock response streaming interface', () => {
     expect(body).toContain('data');
   });
 });
+
+describe('JSON file serving as ES modules', () => {
+  let vfs: VirtualFS;
+  let server: NextDevServer;
+
+  beforeEach(() => {
+    vfs = new VirtualFS();
+    vfs.mkdirSync('/lib', { recursive: true });
+    vfs.mkdirSync('/pages', { recursive: true });
+
+    // Create a simple page
+    vfs.writeFileSync('/pages/index.jsx', 'export default function Home() { return <div>Home</div>; }');
+  });
+
+  afterEach(() => {
+    server?.stop();
+  });
+
+  it('should serve JSON files wrapped as ES modules', async () => {
+    // Create a JSON file
+    vfs.writeFileSync('/lib/data.json', JSON.stringify({
+      name: 'Test',
+      items: [1, 2, 3],
+      nested: { key: 'value' }
+    }));
+
+    server = new NextDevServer(vfs, { port: 3001 });
+
+    const response = await server.handleRequest('GET', '/lib/data.json', {});
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['Content-Type']).toBe('application/javascript; charset=utf-8');
+
+    const body = response.body.toString();
+    expect(body).toMatch(/^export default /);
+    expect(body).toContain('"name":"Test"');
+    expect(body).toContain('"items":[1,2,3]');
+    expect(body).toContain('"nested":{"key":"value"}');
+  });
+
+  it('should wrap JSON arrays as ES modules', async () => {
+    vfs.writeFileSync('/lib/array.json', JSON.stringify(['a', 'b', 'c']));
+
+    server = new NextDevServer(vfs, { port: 3001 });
+
+    const response = await server.handleRequest('GET', '/lib/array.json', {});
+
+    expect(response.statusCode).toBe(200);
+    const body = response.body.toString();
+    expect(body).toBe('export default ["a","b","c"];');
+  });
+
+  it('should handle JSON with special characters', async () => {
+    vfs.writeFileSync('/lib/special.json', JSON.stringify({
+      quote: 'He said "hello"',
+      newline: 'line1\nline2',
+      unicode: '日本語'
+    }));
+
+    server = new NextDevServer(vfs, { port: 3001 });
+
+    const response = await server.handleRequest('GET', '/lib/special.json', {});
+
+    expect(response.statusCode).toBe(200);
+    const body = response.body.toString();
+    expect(body).toMatch(/^export default /);
+    expect(body).toContain('日本語');
+  });
+
+  it('should handle empty JSON objects', async () => {
+    vfs.writeFileSync('/lib/empty.json', '{}');
+
+    server = new NextDevServer(vfs, { port: 3001 });
+
+    const response = await server.handleRequest('GET', '/lib/empty.json', {});
+
+    expect(response.statusCode).toBe(200);
+    const body = response.body.toString();
+    expect(body).toBe('export default {};');
+  });
+
+  it('should handle complex nested JSON', async () => {
+    const complexJson = {
+      sections: [
+        {
+          id: 'section-1',
+          name: 'First Section',
+          features: [
+            { name: 'Feature A', enabled: true },
+            { name: 'Feature B', enabled: false }
+          ]
+        }
+      ],
+      visibleFeatures: 10,
+      metadata: null
+    };
+    vfs.writeFileSync('/lib/complex.json', JSON.stringify(complexJson));
+
+    server = new NextDevServer(vfs, { port: 3001 });
+
+    const response = await server.handleRequest('GET', '/lib/complex.json', {});
+
+    expect(response.statusCode).toBe(200);
+    const body = response.body.toString();
+    expect(body).toMatch(/^export default /);
+    expect(body).toContain('"sections"');
+    expect(body).toContain('"visibleFeatures":10');
+    expect(body).toContain('"metadata":null');
+  });
+
+  it('should return 404 for non-existent JSON files', async () => {
+    server = new NextDevServer(vfs, { port: 3001 });
+
+    const response = await server.handleRequest('GET', '/lib/nonexistent.json', {});
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('should set correct content-length for wrapped JSON', async () => {
+    vfs.writeFileSync('/lib/size.json', '{"a":1}');
+
+    server = new NextDevServer(vfs, { port: 3001 });
+
+    const response = await server.handleRequest('GET', '/lib/size.json', {});
+
+    // "export default {"a":1};" = 22 bytes
+    const expectedContent = 'export default {"a":1};';
+    expect(response.headers['Content-Length']).toBe(String(expectedContent.length));
+    expect(response.body.toString()).toBe(expectedContent);
+  });
+
+  it('should preserve JSON formatting when wrapping', async () => {
+    // JSON with formatting (the actual content doesn't have formatting since we use stringify)
+    const prettyJson = JSON.stringify({ key: 'value' }, null, 2);
+    vfs.writeFileSync('/lib/pretty.json', prettyJson);
+
+    server = new NextDevServer(vfs, { port: 3001 });
+
+    const response = await server.handleRequest('GET', '/lib/pretty.json', {});
+
+    expect(response.statusCode).toBe(200);
+    const body = response.body.toString();
+    expect(body).toMatch(/^export default /);
+    // The newlines and spaces from pretty-printing should be preserved
+    expect(body).toContain('{\n');
+  });
+
+  it('should serve JSON files from nested directories', async () => {
+    vfs.mkdirSync('/lib/config/data', { recursive: true });
+    vfs.writeFileSync('/lib/config/data/settings.json', '{"debug":true}');
+
+    server = new NextDevServer(vfs, { port: 3001 });
+
+    const response = await server.handleRequest('GET', '/lib/config/data/settings.json', {});
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body.toString()).toBe('export default {"debug":true};');
+  });
+});

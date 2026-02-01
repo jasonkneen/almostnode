@@ -283,25 +283,31 @@ const applyVirtualBase = (url) => {
 
 export default function Link({ href, children, ...props }) {
   const handleClick = (e) => {
+    console.log('[Link] Click handler called, href:', href);
+
     if (props.onClick) {
       props.onClick(e);
     }
 
     // Allow cmd/ctrl click to open in new tab
     if (e.metaKey || e.ctrlKey) {
+      console.log('[Link] Meta/Ctrl key pressed, allowing default behavior');
       return;
     }
 
     if (typeof href !== 'string' || !href || href.startsWith('#') || href.startsWith('?')) {
+      console.log('[Link] Skipping navigation for href:', href);
       return;
     }
 
     if (/^(https?:)?\\/\\//.test(href)) {
+      console.log('[Link] External URL, allowing default behavior:', href);
       return;
     }
 
     e.preventDefault();
     const resolvedHref = applyVirtualBase(href);
+    console.log('[Link] Navigating to:', resolvedHref);
     window.history.pushState({}, '', resolvedHref);
     window.dispatchEvent(new PopStateEvent('popstate'));
   };
@@ -671,6 +677,65 @@ export default function Head({ children }) {
 `;
 
 /**
+ * Next.js Image shim code
+ * Provides a simple img-based implementation of next/image
+ */
+const NEXT_IMAGE_SHIM = `
+import React from 'react';
+
+function Image({
+  src,
+  alt = '',
+  width,
+  height,
+  fill,
+  loader,
+  quality = 75,
+  priority,
+  loading,
+  placeholder,
+  blurDataURL,
+  unoptimized,
+  onLoad,
+  onError,
+  style,
+  className,
+  sizes,
+  ...rest
+}) {
+  // Handle src - could be string or StaticImageData object
+  const imageSrc = typeof src === 'object' ? src.src : src;
+
+  // Build style object
+  const imgStyle = { ...style };
+  if (fill) {
+    imgStyle.position = 'absolute';
+    imgStyle.width = '100%';
+    imgStyle.height = '100%';
+    imgStyle.objectFit = imgStyle.objectFit || 'cover';
+    imgStyle.inset = '0';
+  }
+
+  return React.createElement('img', {
+    src: imageSrc,
+    alt,
+    width: fill ? undefined : width,
+    height: fill ? undefined : height,
+    loading: priority ? 'eager' : (loading || 'lazy'),
+    decoding: 'async',
+    style: imgStyle,
+    className,
+    onLoad,
+    onError,
+    ...rest
+  });
+}
+
+export default Image;
+export { Image };
+`;
+
+/**
  * NextDevServer - A lightweight Next.js-compatible development server
  *
  * Supports both routing paradigms:
@@ -718,6 +783,9 @@ export class NextDevServer extends DevServer {
   /** Transform result cache for performance */
   private transformCache: Map<string, { code: string; hash: string }> = new Map();
 
+  /** Path aliases from tsconfig.json (e.g., @/* -> ./*) */
+  private pathAliases: Map<string, string> = new Map();
+
   constructor(vfs: VirtualFS, options: NextDevServerOptions) {
     super(vfs, options);
     this.options = options;
@@ -733,6 +801,81 @@ export class NextDevServer extends DevServer {
       // Prefer App Router if /app directory exists with a page.jsx file
       this.useAppRouter = this.hasAppRouter();
     }
+
+    // Load path aliases from tsconfig.json
+    this.loadPathAliases();
+  }
+
+  /**
+   * Load path aliases from tsconfig.json
+   * Supports common patterns like @/* -> ./*
+   */
+  private loadPathAliases(): void {
+    try {
+      const tsconfigPath = '/tsconfig.json';
+      if (!this.vfs.existsSync(tsconfigPath)) {
+        return;
+      }
+
+      const content = this.vfs.readFileSync(tsconfigPath, 'utf-8');
+      const tsconfig = JSON.parse(content);
+      const paths = tsconfig?.compilerOptions?.paths;
+
+      if (!paths) {
+        return;
+      }
+
+      // Convert tsconfig paths to a simple alias map
+      // e.g., "@/*": ["./*"] becomes "@/" -> "/"
+      for (const [alias, targets] of Object.entries(paths)) {
+        if (Array.isArray(targets) && targets.length > 0) {
+          // Remove trailing * from alias and target
+          const aliasPrefix = alias.replace(/\*$/, '');
+          const targetPrefix = (targets[0] as string).replace(/\*$/, '').replace(/^\./, '');
+          this.pathAliases.set(aliasPrefix, targetPrefix);
+        }
+      }
+    } catch (e) {
+      // Silently ignore tsconfig parse errors
+    }
+  }
+
+  /**
+   * Resolve path aliases in transformed code
+   * Converts imports like "@/components/foo" to "/__virtual__/PORT/components/foo"
+   * This ensures imports go through the virtual server instead of the main server
+   */
+  private resolvePathAliases(code: string, currentFile: string): string {
+    if (this.pathAliases.size === 0) {
+      return code;
+    }
+
+    // Get the virtual server base path
+    const virtualBase = `/__virtual__/${this.port}`;
+
+    let result = code;
+
+    for (const [alias, target] of this.pathAliases) {
+      // Match import/export statements with the alias
+      // Handles: import ... from "@/...", export ... from "@/...", import("@/...")
+      const aliasEscaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+      // Pattern to match the alias in import/export statements
+      // This matches: from "@/...", from '@/...', import("@/..."), import('@/...')
+      const pattern = new RegExp(
+        `(from\\s*['"]|import\\s*\\(\\s*['"])${aliasEscaped}([^'"]+)(['"])`,
+        'g'
+      );
+
+      result = result.replace(pattern, (match, prefix, path, quote) => {
+        // Convert alias to virtual server path
+        // e.g., @/components/faq -> /__virtual__/3001/components/faq
+        const resolvedPath = `${virtualBase}${target}${path}`;
+        return `${prefix}${resolvedPath}${quote}`;
+      });
+    }
+
+    return result;
   }
 
   /**
@@ -762,22 +905,24 @@ export class NextDevServer extends DevServer {
   /**
    * Generate a script tag that defines process.env with NEXT_PUBLIC_* variables
    * This makes environment variables available to browser code via process.env.NEXT_PUBLIC_*
+   * Also includes all env variables for Server Component compatibility
    */
   private generateEnvScript(): string {
     const env = this.options.env || {};
 
-    // Filter for NEXT_PUBLIC_* variables only (Next.js convention)
-    const publicEnvVars = Object.entries(env)
-      .filter(([key]) => key.startsWith('NEXT_PUBLIC_'))
-      .reduce((acc, [k, v]) => ({ ...acc, [k]: v }), {} as Record<string, string>);
-
-    // Return empty string if no public env vars
-    if (Object.keys(publicEnvVars).length === 0) {
-      return '';
+    // Only include NEXT_PUBLIC_* vars in the HTML (client-side accessible)
+    // Non-public vars should never be exposed in HTML for security
+    const publicEnvVars: Record<string, string> = {};
+    for (const [key, value] of Object.entries(env)) {
+      if (key.startsWith('NEXT_PUBLIC_')) {
+        publicEnvVars[key] = value;
+      }
     }
 
+    // Always create process.env even if empty (some code checks for process.env existence)
+    // This prevents "process is not defined" errors
     return `<script>
-  // NEXT_PUBLIC_* environment variables (injected by NextDevServer)
+  // Environment variables (injected by NextDevServer)
   window.process = window.process || {};
   window.process.env = window.process.env || {};
   Object.assign(window.process.env, ${JSON.stringify(publicEnvVars)});
@@ -851,6 +996,16 @@ export class NextDevServer extends DevServer {
       return this.transformAndServe(pathname, pathname);
     }
 
+    // Try to resolve file with different extensions (for imports without extensions)
+    // e.g., /components/faq -> /components/faq.tsx
+    const resolvedFile = this.resolveFileWithExtension(pathname);
+    if (resolvedFile) {
+      if (this.needsTransform(resolvedFile)) {
+        return this.transformAndServe(resolvedFile, pathname);
+      }
+      return this.serveFile(resolvedFile);
+    }
+
     // Serve regular files directly if they exist
     if (this.exists(pathname) && !this.isDirectory(pathname)) {
       return this.serveFile(pathname);
@@ -879,6 +1034,9 @@ export class NextDevServer extends DevServer {
         break;
       case 'navigation':
         code = NEXT_NAVIGATION_SHIM;
+        break;
+      case 'image':
+        code = NEXT_IMAGE_SHIM;
         break;
       default:
         return this.notFound(pathname);
@@ -1692,7 +1850,8 @@ export class NextDevServer extends DevServer {
       "next/link": "${virtualPrefix}/_next/shims/link.js",
       "next/router": "${virtualPrefix}/_next/shims/router.js",
       "next/head": "${virtualPrefix}/_next/shims/head.js",
-      "next/navigation": "${virtualPrefix}/_next/shims/navigation.js"
+      "next/navigation": "${virtualPrefix}/_next/shims/navigation.js",
+      "next/image": "${virtualPrefix}/_next/shims/image.js"
     }
   }
   </script>
@@ -1772,6 +1931,45 @@ export class NextDevServer extends DevServer {
       return layouts;
     }
 
+    // Wrapper for async Server Components
+    function AsyncComponent({ component: Component }) {
+      const [content, setContent] = React.useState(null);
+      const [error, setError] = React.useState(null);
+
+      React.useEffect(() => {
+        let cancelled = false;
+        async function render() {
+          try {
+            // Check if component is async by calling it
+            const result = Component();
+            if (result && typeof result.then === 'function') {
+              // It's a Promise (async component)
+              const resolved = await result;
+              if (!cancelled) setContent(resolved);
+            } else {
+              // Synchronous component - result is already JSX
+              if (!cancelled) setContent(result);
+            }
+          } catch (e) {
+            console.error('[AsyncComponent] Error rendering:', e);
+            if (!cancelled) setError(e);
+          }
+        }
+        render();
+        return () => { cancelled = true; };
+      }, [Component]);
+
+      if (error) {
+        return React.createElement('div', { style: { color: 'red', padding: '20px' } },
+          'Error: ' + error.message
+        );
+      }
+      if (!content) {
+        return React.createElement('div', { style: { padding: '20px' } }, 'Loading...');
+      }
+      return content;
+    }
+
     // Router component
     function Router() {
       const [Page, setPage] = React.useState(null);
@@ -1788,21 +1986,27 @@ export class NextDevServer extends DevServer {
       React.useEffect(() => {
         const handleNavigation = async () => {
           const newPath = window.location.pathname;
+          console.log('[Router] handleNavigation called, newPath:', newPath, 'current path:', path);
           if (newPath !== path) {
+            console.log('[Router] Path changed, loading new page...');
             setPath(newPath);
             const [P, L] = await Promise.all([loadPage(newPath), loadLayouts(newPath)]);
+            console.log('[Router] Page loaded:', !!P, 'Layouts:', L.length);
             if (P) setPage(() => P);
             setLayouts(L);
+          } else {
+            console.log('[Router] Path unchanged, skipping navigation');
           }
         };
         window.addEventListener('popstate', handleNavigation);
+        console.log('[Router] Added popstate listener for path:', path);
         return () => window.removeEventListener('popstate', handleNavigation);
       }, [path]);
 
       if (!Page) return null;
 
-      // Build nested layout structure
-      let content = React.createElement(Page);
+      // Use AsyncComponent wrapper to handle async Server Components
+      let content = React.createElement(AsyncComponent, { component: Page });
       for (let i = layouts.length - 1; i >= 0; i--) {
         content = React.createElement(layouts[i], null, content);
       }
@@ -1984,7 +2188,9 @@ export class NextDevServer extends DevServer {
       "react-dom/client": "https://esm.sh/react-dom@18.2.0/client?dev",
       "next/link": "${virtualPrefix}/_next/shims/link.js",
       "next/router": "${virtualPrefix}/_next/shims/router.js",
-      "next/head": "${virtualPrefix}/_next/shims/head.js"
+      "next/head": "${virtualPrefix}/_next/shims/head.js",
+      "next/navigation": "${virtualPrefix}/_next/shims/navigation.js",
+      "next/image": "${virtualPrefix}/_next/shims/image.js"
     }
   }
   </script>
@@ -2107,6 +2313,39 @@ export class NextDevServer extends DevServer {
   }
 
   /**
+   * Try to resolve a file path by adding common extensions
+   * e.g., /components/faq -> /components/faq.tsx
+   * Also handles index files in directories
+   */
+  private resolveFileWithExtension(pathname: string): string | null {
+    // If the file already has an extension and exists, return it
+    if (/\.\w+$/.test(pathname) && this.exists(pathname)) {
+      return pathname;
+    }
+
+    // Common extensions to try, in order of preference
+    const extensions = ['.tsx', '.ts', '.jsx', '.js'];
+
+    // Try adding extensions directly
+    for (const ext of extensions) {
+      const withExt = pathname + ext;
+      if (this.exists(withExt)) {
+        return withExt;
+      }
+    }
+
+    // Try as a directory with index file
+    for (const ext of extensions) {
+      const indexPath = pathname + '/index' + ext;
+      if (this.exists(indexPath)) {
+        return indexPath;
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Check if a file needs transformation
    */
   private needsTransform(path: string): boolean {
@@ -2139,7 +2378,8 @@ export class NextDevServer extends DevServer {
         };
       }
 
-      const transformed = await this.transformCode(content, urlPath);
+      // Use filePath (with extension) for transform so loader is correctly determined
+      const transformed = await this.transformCode(content, filePath);
 
       // Cache the transform result
       this.transformCache.set(filePath, { code: transformed, hash });
@@ -2191,12 +2431,15 @@ export class NextDevServer extends DevServer {
     // CSS imports in ESM would fail with MIME type errors
     const codeWithoutCssImports = this.stripCssImports(code);
 
+    // Resolve path aliases (e.g., @/ -> /) before transformation
+    const codeWithResolvedAliases = this.resolvePathAliases(codeWithoutCssImports, filename);
+
     let loader: 'js' | 'jsx' | 'ts' | 'tsx' = 'js';
     if (filename.endsWith('.jsx')) loader = 'jsx';
     else if (filename.endsWith('.tsx')) loader = 'tsx';
     else if (filename.endsWith('.ts')) loader = 'ts';
 
-    const result = await esbuild.transform(codeWithoutCssImports, {
+    const result = await esbuild.transform(codeWithResolvedAliases, {
       loader,
       format: 'esm',
       target: 'esnext',
@@ -2206,12 +2449,80 @@ export class NextDevServer extends DevServer {
       sourcefile: filename,
     });
 
+    // Redirect bare npm imports to esm.sh CDN
+    const codeWithCdnImports = this.redirectNpmImports(result.code);
+
     // Add React Refresh registration for JSX/TSX files
     if (/\.(jsx|tsx)$/.test(filename)) {
-      return this.addReactRefresh(result.code, filename);
+      return this.addReactRefresh(codeWithCdnImports, filename);
     }
 
-    return result.code;
+    return codeWithCdnImports;
+  }
+
+  /**
+   * Redirect bare npm package imports to esm.sh CDN
+   * e.g., import { Crisp } from "crisp-sdk-web" -> import { Crisp } from "https://esm.sh/crisp-sdk-web?external=react"
+   *
+   * IMPORTANT: We redirect ALL npm packages to esm.sh URLs (including React)
+   * because import maps don't work reliably for dynamically imported modules.
+   */
+  private redirectNpmImports(code: string): string {
+    // Explicit mappings for common packages (ensures correct esm.sh URLs)
+    const explicitMappings: Record<string, string> = {
+      'react': 'https://esm.sh/react@18.2.0?dev',
+      'react/jsx-runtime': 'https://esm.sh/react@18.2.0&dev/jsx-runtime',
+      'react/jsx-dev-runtime': 'https://esm.sh/react@18.2.0&dev/jsx-dev-runtime',
+      'react-dom': 'https://esm.sh/react-dom@18.2.0?dev',
+      'react-dom/client': 'https://esm.sh/react-dom@18.2.0/client?dev',
+    };
+
+    // Packages that are local or have custom shims (NOT npm packages)
+    const localPackages = new Set([
+      'next/link', 'next/router', 'next/head', 'next/navigation',
+      'next/dynamic', 'next/image', 'next/script', 'next/font/google',
+      'convex/_generated/api'
+    ]);
+
+    // Pattern to match import statements with bare package specifiers
+    // Matches: from "package" or from 'package' where package doesn't start with . / or http
+    const importPattern = /(from\s*['"])([^'"./][^'"]*?)(['"])/g;
+
+    return code.replace(importPattern, (match, prefix, packageName, suffix) => {
+      // Skip if already a URL or local virtual path
+      if (packageName.startsWith('http://') ||
+          packageName.startsWith('https://') ||
+          packageName.startsWith('/__virtual__')) {
+        return match;
+      }
+
+      // Check explicit mappings first
+      if (explicitMappings[packageName]) {
+        return `${prefix}${explicitMappings[packageName]}${suffix}`;
+      }
+
+      // Skip local/shimmed packages (they're handled via import map or virtual paths)
+      if (localPackages.has(packageName)) {
+        return match;
+      }
+
+      // Check if it's a subpath import of a local package
+      const basePkg = packageName.includes('/') ? packageName.split('/')[0] : packageName;
+
+      // Handle scoped packages (@org/pkg)
+      const isScoped = basePkg.startsWith('@');
+      const scopedBasePkg = isScoped && packageName.includes('/')
+        ? packageName.split('/').slice(0, 2).join('/')
+        : basePkg;
+
+      if (localPackages.has(scopedBasePkg)) {
+        return match;
+      }
+
+      // Redirect to esm.sh with external=react to avoid bundling React twice
+      const esmUrl = `https://esm.sh/${packageName}?external=react`;
+      return `${prefix}${esmUrl}${suffix}`;
+    });
   }
 
   /**
@@ -2228,6 +2539,9 @@ export class NextDevServer extends DevServer {
    * Transform API handler code to CommonJS for eval execution
    */
   private async transformApiHandler(code: string, filename: string): Promise<string> {
+    // Resolve path aliases first
+    const codeWithResolvedAliases = this.resolvePathAliases(code, filename);
+
     if (isBrowser) {
       // Use esbuild in browser
       await initEsbuild();
@@ -2242,7 +2556,7 @@ export class NextDevServer extends DevServer {
       else if (filename.endsWith('.tsx')) loader = 'tsx';
       else if (filename.endsWith('.ts')) loader = 'ts';
 
-      const result = await esbuild.transform(code, {
+      const result = await esbuild.transform(codeWithResolvedAliases, {
         loader,
         format: 'cjs',  // CommonJS for eval execution
         target: 'esnext',
@@ -2254,7 +2568,7 @@ export class NextDevServer extends DevServer {
     }
 
     // Simple ESM to CJS transform for Node.js/test environment
-    let transformed = code;
+    let transformed = codeWithResolvedAliases;
 
     // Convert: import X from 'Y' -> const X = require('Y')
     transformed = transformed.replace(
@@ -2418,6 +2732,76 @@ ${registrations}
         // Window may be closed or unavailable
       }
     }
+  }
+
+  /**
+   * Override serveFile to wrap JSON files as ES modules
+   * This is needed because browsers can't dynamically import raw JSON files
+   */
+  protected serveFile(filePath: string): ResponseData {
+    // For JSON files, wrap as ES module so they can be dynamically imported
+    if (filePath.endsWith('.json')) {
+      try {
+        const normalizedPath = this.resolvePath(filePath);
+        const content = this.vfs.readFileSync(normalizedPath);
+
+        // Properly convert content to string
+        // VirtualFS may return string, Buffer, or Uint8Array
+        let jsonContent: string;
+        if (typeof content === 'string') {
+          jsonContent = content;
+        } else if (content instanceof Uint8Array) {
+          // Use TextDecoder for Uint8Array (includes Buffer in browser)
+          jsonContent = new TextDecoder('utf-8').decode(content);
+        } else {
+          // Fallback for other buffer-like objects
+          jsonContent = Buffer.from(content).toString('utf-8');
+        }
+
+        // Wrap JSON as ES module
+        const esModuleContent = `export default ${jsonContent};`;
+        const buffer = Buffer.from(esModuleContent);
+
+        return {
+          statusCode: 200,
+          statusMessage: 'OK',
+          headers: {
+            'Content-Type': 'application/javascript; charset=utf-8',
+            'Content-Length': String(buffer.length),
+            'Cache-Control': 'no-cache',
+          },
+          body: buffer,
+        };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return this.notFound(filePath);
+        }
+        return this.serverError(error);
+      }
+    }
+
+    // For all other files, use the parent implementation
+    return super.serveFile(filePath);
+  }
+
+  /**
+   * Resolve a path (helper to access protected method from parent)
+   */
+  protected resolvePath(urlPath: string): string {
+    // Remove query string and hash
+    let path = urlPath.split('?')[0].split('#')[0];
+
+    // Normalize path
+    if (!path.startsWith('/')) {
+      path = '/' + path;
+    }
+
+    // Join with root
+    if (this.root !== '/') {
+      path = this.root + path;
+    }
+
+    return path;
   }
 
   /**
