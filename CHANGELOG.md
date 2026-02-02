@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-02-02
+
+### Added
+
+- **Asset prefix support:** NextDevServer now supports `assetPrefix` option for serving static assets with URL prefixes (e.g., `/marketing/images/...` → `/public/images/...`)
+- **Auto-detection:** Automatically detects `assetPrefix` from `next.config.ts/js/mjs` files
+- **Binary file support:** Macaly demo now supports base64-encoded binary files (images, fonts, etc.) in the virtual file system
+- **File extraction script:** Added `scripts/extract-macaly-files.ts` to load real-world Next.js projects including binary assets
+
+### Fixed
+
+- **Virtual server asset routing:** Service worker now forwards ALL requests from virtual contexts (images, scripts, CSS) to the virtual server, not just navigation requests. This fixes 404 errors for assets using absolute URLs.
+- **Double-slash URLs:** Handle URLs like `/marketing//images/foo.png` that result from concatenating assetPrefix with paths
+
 ## [0.2.5] - 2025-02-01
 
 ### Added
