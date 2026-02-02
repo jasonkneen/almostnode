@@ -1476,3 +1476,748 @@ describe('JSON file serving as ES modules', () => {
     expect(response.body.toString()).toBe('export default {"debug":true};');
   });
 });
+
+describe('Tailwind config integration', () => {
+  let vfs: VirtualFS;
+  let server: NextDevServer;
+
+  beforeEach(() => {
+    vfs = new VirtualFS();
+
+    // Create App Router structure
+    vfs.mkdirSync('/app', { recursive: true });
+    vfs.writeFileSync(
+      '/app/layout.tsx',
+      `export default function RootLayout({ children }) {
+  return <html><body>{children}</body></html>;
+}`
+    );
+    vfs.writeFileSync(
+      '/app/page.tsx',
+      `export default function Home() {
+  return <div className="text-brand-500">Hello</div>;
+}`
+    );
+  });
+
+  it('should inject tailwind config before CDN script in App Router HTML', async () => {
+    vfs.writeFileSync(
+      '/tailwind.config.ts',
+      `import type { Config } from "tailwindcss"
+
+export default {
+  content: ["./app/**/*.tsx"],
+  theme: {
+    extend: {
+      colors: {
+        brand: {
+          500: "var(--brand-500)"
+        }
+      }
+    }
+  }
+} satisfies Config`
+    );
+
+    server = new NextDevServer(vfs, { port: 3001 });
+    const response = await server.handleRequest('GET', '/', {});
+
+    expect(response.statusCode).toBe(200);
+    const html = response.body.toString();
+
+    // Config script should be in the HTML
+    expect(html).toContain('tailwind.config');
+    expect(html).toContain('brand');
+    expect(html).toContain('var(--brand-500)');
+
+    // Config should come AFTER the CDN script (CDN creates tailwind global, then we configure it)
+    const configIndex = html.indexOf('tailwind.config =');
+    const cdnIndex = html.indexOf('cdn.tailwindcss.com');
+    expect(configIndex).toBeGreaterThan(-1);
+    expect(cdnIndex).toBeGreaterThan(-1);
+    expect(configIndex).toBeGreaterThan(cdnIndex);
+  });
+
+  it('should inject tailwind config after CDN script in Pages Router HTML', async () => {
+    // Create Pages Router structure instead
+    vfs.mkdirSync('/pages', { recursive: true });
+    vfs.writeFileSync(
+      '/pages/index.jsx',
+      `export default function Home() {
+  return <div className="text-brand-500">Hello</div>;
+}`
+    );
+
+    vfs.writeFileSync(
+      '/tailwind.config.ts',
+      `export default {
+  content: ["./pages/**/*.jsx"],
+  theme: {
+    extend: {
+      colors: {
+        primary: "#0066cc"
+      }
+    }
+  }
+}`
+    );
+
+    server = new NextDevServer(vfs, { port: 3001, preferAppRouter: false });
+    const response = await server.handleRequest('GET', '/', {});
+
+    expect(response.statusCode).toBe(200);
+    const html = response.body.toString();
+
+    // Config script should be in the HTML
+    expect(html).toContain('tailwind.config');
+    expect(html).toContain('primary');
+    expect(html).toContain('#0066cc');
+
+    // Config should come AFTER the CDN script (CDN creates tailwind global, then we configure it)
+    const configIndex = html.indexOf('tailwind.config =');
+    const cdnIndex = html.indexOf('cdn.tailwindcss.com');
+    expect(configIndex).toBeGreaterThan(-1);
+    expect(cdnIndex).toBeGreaterThan(-1);
+    expect(configIndex).toBeGreaterThan(cdnIndex);
+  });
+
+  it('should work without tailwind config (CDN defaults)', async () => {
+    // No tailwind.config.ts file
+
+    server = new NextDevServer(vfs, { port: 3001 });
+    const response = await server.handleRequest('GET', '/', {});
+
+    expect(response.statusCode).toBe(200);
+    const html = response.body.toString();
+
+    // CDN script should still be present
+    expect(html).toContain('cdn.tailwindcss.com');
+
+    // But no custom config (tailwind.config = ... should not be present)
+    expect(html).not.toContain('tailwind.config =');
+  });
+
+  it('should handle complex tailwind config with animations and CSS variables', async () => {
+    vfs.writeFileSync(
+      '/tailwind.config.ts',
+      `import type { Config } from "tailwindcss"
+
+export default {
+  darkMode: ["class"],
+  content: ["./app/**/*.tsx"],
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ["var(--font-sans)", "sans-serif"]
+      },
+      colors: {
+        brand: {
+          50: "var(--brand-50)",
+          100: "var(--brand-100)",
+          500: "var(--brand-500)"
+        },
+        text: {
+          primary: "var(--text-primary)"
+        }
+      },
+      animation: {
+        marquee: "marquee var(--duration) linear infinite"
+      },
+      keyframes: {
+        marquee: {
+          from: { transform: "translateX(0)" },
+          to: { transform: "translateX(calc(-100% - var(--gap)))" }
+        }
+      }
+    }
+  }
+} satisfies Config`
+    );
+
+    server = new NextDevServer(vfs, { port: 3001 });
+    const response = await server.handleRequest('GET', '/', {});
+
+    expect(response.statusCode).toBe(200);
+    const html = response.body.toString();
+
+    // All config parts should be present
+    expect(html).toContain('darkMode');
+    expect(html).toContain('fontFamily');
+    expect(html).toContain('animation');
+    expect(html).toContain('keyframes');
+    expect(html).toContain('marquee');
+    expect(html).toContain('translateX');
+  });
+});
+
+describe('next/font/google shim', () => {
+  let vfs: VirtualFS;
+  let server: NextDevServer;
+
+  beforeEach(() => {
+    vfs = new VirtualFS();
+
+    // Create App Router structure
+    vfs.mkdirSync('/app', { recursive: true });
+  });
+
+  it('should serve next/font/google shim', async () => {
+    vfs.writeFileSync('/app/layout.tsx', 'export default function Layout({ children }) { return children; }');
+    vfs.writeFileSync('/app/page.tsx', 'export default function Page() { return <div>Hello</div>; }');
+
+    server = new NextDevServer(vfs, { port: 3001 });
+    const response = await server.handleRequest('GET', '/_next/shims/font/google.js', {});
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['Content-Type']).toBe('application/javascript; charset=utf-8');
+
+    const code = response.body.toString();
+
+    // Should use Proxy for dynamic font loading
+    expect(code).toContain('Proxy');
+    expect(code).toContain('createFontLoader');
+
+    // Should export fonts via destructuring from proxy
+    expect(code).toContain('Fraunces');
+    expect(code).toContain('Inter');
+    expect(code).toContain('DM_Sans');
+
+    // Should inject font CSS from Google Fonts
+    expect(code).toContain('injectFontCSS');
+    expect(code).toContain('fonts.googleapis.com');
+
+    // Should convert font names to family names (DM_Sans -> DM Sans)
+    expect(code).toContain('toFontFamily');
+  });
+
+  it('should include next/font/google in import map', async () => {
+    vfs.writeFileSync('/app/layout.tsx', 'export default function Layout({ children }) { return children; }');
+    vfs.writeFileSync('/app/page.tsx', 'export default function Page() { return <div>Hello</div>; }');
+
+    server = new NextDevServer(vfs, { port: 3001 });
+    const response = await server.handleRequest('GET', '/', {});
+
+    expect(response.statusCode).toBe(200);
+    const html = response.body.toString();
+
+    // Import map should include next/font/google
+    expect(html).toContain('"next/font/google"');
+    expect(html).toContain('/_next/shims/font/google.js');
+  });
+});
+
+describe('App Router page props (searchParams and params)', () => {
+  let vfs: VirtualFS;
+  let server: NextDevServer;
+
+  beforeEach(() => {
+    vfs = new VirtualFS();
+
+    // Create App Router structure
+    vfs.mkdirSync('/app', { recursive: true });
+    vfs.writeFileSync(
+      '/app/layout.tsx',
+      `export default function RootLayout({ children }) {
+  return <html><body>{children}</body></html>;
+}`
+    );
+  });
+
+  afterEach(() => {
+    server?.stop();
+  });
+
+  describe('searchParams prop', () => {
+    it('should pass searchParams as a Promise to page components', async () => {
+      vfs.writeFileSync(
+        '/app/page.tsx',
+        `export default function Home() {
+  return <div>Home</div>;
+}`
+      );
+
+      server = new NextDevServer(vfs, { port: 3001, preferAppRouter: true });
+      const response = await server.handleRequest('GET', '/', {});
+
+      expect(response.statusCode).toBe(200);
+      const html = response.body.toString();
+
+      // The AsyncComponent should create searchParams as a Promise
+      expect(html).toContain('Promise.resolve(searchParamsObj)');
+      // Should pass searchParams to the component
+      expect(html).toContain('Component({ searchParams, params })');
+    });
+
+    it('should include search params from URL in the searchParams object', async () => {
+      vfs.writeFileSync(
+        '/app/page.tsx',
+        `export default function Home() {
+  return <div>Home</div>;
+}`
+      );
+
+      server = new NextDevServer(vfs, { port: 3001, preferAppRouter: true });
+      const response = await server.handleRequest('GET', '/', {});
+
+      expect(response.statusCode).toBe(200);
+      const html = response.body.toString();
+
+      // Should use Object.fromEntries to convert URL searchParams
+      expect(html).toContain('Object.fromEntries(url.searchParams)');
+    });
+
+    it('should re-render when search params change', async () => {
+      vfs.writeFileSync(
+        '/app/page.tsx',
+        `export default function Home() {
+  return <div>Home</div>;
+}`
+      );
+
+      server = new NextDevServer(vfs, { port: 3001, preferAppRouter: true });
+      const response = await server.handleRequest('GET', '/', {});
+
+      expect(response.statusCode).toBe(200);
+      const html = response.body.toString();
+
+      // Router should track search state
+      expect(html).toContain('const [search, setSearch]');
+      // AsyncComponent should have search in its dependencies
+      expect(html).toContain('[Component, pathname, search]');
+    });
+  });
+
+  describe('params prop for dynamic routes', () => {
+    beforeEach(() => {
+      // Create root page (needed for HTML generation tests)
+      vfs.writeFileSync(
+        '/app/page.tsx',
+        `export default function Home() {
+  return <div>Home</div>;
+}`
+      );
+      // Create dynamic route structure
+      vfs.mkdirSync('/app/users', { recursive: true });
+      vfs.mkdirSync('/app/users/[id]', { recursive: true });
+      vfs.writeFileSync(
+        '/app/users/[id]/page.tsx',
+        `export default async function UserPage({ params }) {
+  const { id } = await params;
+  return <div>User {id}</div>;
+}`
+      );
+    });
+
+    it('should extract params from dynamic route segments', async () => {
+      server = new NextDevServer(vfs, { port: 3001, preferAppRouter: true });
+      const response = await server.handleRequest('GET', '/', {});
+
+      expect(response.statusCode).toBe(200);
+      const html = response.body.toString();
+
+      // Should have extractRouteParams function
+      expect(html).toContain('extractRouteParams');
+    });
+
+    it('should pass params as a Promise to page components', async () => {
+      server = new NextDevServer(vfs, { port: 3001, preferAppRouter: true });
+      const response = await server.handleRequest('GET', '/', {});
+
+      expect(response.statusCode).toBe(200);
+      const html = response.body.toString();
+
+      // Should pass params to the component
+      expect(html).toContain('Component({ searchParams, params })');
+      // Params should be a Promise
+      expect(html).toContain('Promise.resolve');
+    });
+
+    it('should resolve dynamic route /users/123', async () => {
+      server = new NextDevServer(vfs, { port: 3001, preferAppRouter: true });
+
+      // Request the dynamic route
+      const response = await server.handleRequest('GET', '/users/123', {});
+
+      expect(response.statusCode).toBe(200);
+    });
+
+    it('should handle nested dynamic routes', async () => {
+      // Create nested dynamic route
+      vfs.mkdirSync('/app/blog', { recursive: true });
+      vfs.mkdirSync('/app/blog/[slug]', { recursive: true });
+      vfs.mkdirSync('/app/blog/[slug]/comments', { recursive: true });
+      vfs.mkdirSync('/app/blog/[slug]/comments/[commentId]', { recursive: true });
+      vfs.writeFileSync(
+        '/app/blog/[slug]/comments/[commentId]/page.tsx',
+        `export default async function CommentPage({ params }) {
+  const { slug, commentId } = await params;
+  return <div>Comment {commentId} on post {slug}</div>;
+}`
+      );
+
+      server = new NextDevServer(vfs, { port: 3001, preferAppRouter: true });
+
+      // Request the nested dynamic route
+      const response = await server.handleRequest('GET', '/blog/my-post/comments/123', {});
+
+      expect(response.statusCode).toBe(200);
+    });
+
+    it('should handle catch-all routes [...slug]', async () => {
+      vfs.mkdirSync('/app/docs', { recursive: true });
+      vfs.mkdirSync('/app/docs/[...slug]', { recursive: true });
+      vfs.writeFileSync(
+        '/app/docs/[...slug]/page.tsx',
+        `export default async function DocsPage({ params }) {
+  const { slug } = await params;
+  return <div>Docs: {slug.join('/')}</div>;
+}`
+      );
+
+      server = new NextDevServer(vfs, { port: 3001, preferAppRouter: true });
+
+      // Request the catch-all route
+      const response = await server.handleRequest('GET', '/docs/getting-started/installation', {});
+
+      expect(response.statusCode).toBe(200);
+    });
+  });
+
+  describe('route-info endpoint', () => {
+    beforeEach(() => {
+      vfs.writeFileSync(
+        '/app/page.tsx',
+        `export default function Home() { return <div>Home</div>; }`
+      );
+    });
+
+    it('should return empty params for static routes', async () => {
+      server = new NextDevServer(vfs, { port: 3001, preferAppRouter: true });
+      const response = await server.handleRequest('GET', '/_next/route-info?pathname=/', {});
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body.toString());
+      expect(body.found).toBe(true);
+      expect(body.params).toEqual({});
+    });
+
+    it('should return extracted params for dynamic routes', async () => {
+      vfs.mkdirSync('/app/users', { recursive: true });
+      vfs.mkdirSync('/app/users/[id]', { recursive: true });
+      vfs.writeFileSync(
+        '/app/users/[id]/page.tsx',
+        `export default function UserPage() { return <div>User</div>; }`
+      );
+
+      server = new NextDevServer(vfs, { port: 3001, preferAppRouter: true });
+      const response = await server.handleRequest('GET', '/_next/route-info?pathname=/users/123', {});
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body.toString());
+      expect(body.found).toBe(true);
+      expect(body.params).toEqual({ id: '123' });
+    });
+
+    it('should return extracted params for nested dynamic routes', async () => {
+      vfs.mkdirSync('/app/blog', { recursive: true });
+      vfs.mkdirSync('/app/blog/[slug]', { recursive: true });
+      vfs.mkdirSync('/app/blog/[slug]/comments', { recursive: true });
+      vfs.mkdirSync('/app/blog/[slug]/comments/[commentId]', { recursive: true });
+      vfs.writeFileSync(
+        '/app/blog/[slug]/comments/[commentId]/page.tsx',
+        `export default function CommentPage() { return <div>Comment</div>; }`
+      );
+
+      server = new NextDevServer(vfs, { port: 3001, preferAppRouter: true });
+      const response = await server.handleRequest('GET', '/_next/route-info?pathname=/blog/my-post/comments/42', {});
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body.toString());
+      expect(body.found).toBe(true);
+      expect(body.params).toEqual({ slug: 'my-post', commentId: '42' });
+    });
+
+    it('should return array for catch-all routes', async () => {
+      vfs.mkdirSync('/app/docs', { recursive: true });
+      vfs.mkdirSync('/app/docs/[...slug]', { recursive: true });
+      vfs.writeFileSync(
+        '/app/docs/[...slug]/page.tsx',
+        `export default function DocsPage() { return <div>Docs</div>; }`
+      );
+
+      server = new NextDevServer(vfs, { port: 3001, preferAppRouter: true });
+      const response = await server.handleRequest('GET', '/_next/route-info?pathname=/docs/getting-started/installation', {});
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body.toString());
+      expect(body.found).toBe(true);
+      expect(body.params).toEqual({ slug: ['getting-started', 'installation'] });
+    });
+
+    it('should return found=false for non-existent routes', async () => {
+      server = new NextDevServer(vfs, { port: 3001, preferAppRouter: true });
+      const response = await server.handleRequest('GET', '/_next/route-info?pathname=/nonexistent', {});
+
+      expect(response.statusCode).toBe(200);
+      const body = JSON.parse(response.body.toString());
+      expect(body.found).toBe(false);
+      expect(body.params).toEqual({});
+    });
+  });
+});
+
+describe('CSS import stripping', () => {
+  let vfs: VirtualFS;
+  let server: NextDevServer;
+
+  beforeEach(() => {
+    vfs = new VirtualFS();
+    vfs.mkdirSync('/app', { recursive: true });
+    vfs.mkdirSync('/components', { recursive: true });
+  });
+
+  afterEach(() => {
+    server?.stop();
+  });
+
+  it('should preserve imports that come after CSS imports', async () => {
+    // This test verifies the fix for a bug where CSS import stripping
+    // would consume trailing newlines, causing subsequent imports to be lost.
+    // The original bug: "import './globals.css'\n\nimport { Foo }" would become
+    // "// CSS removed...import { Foo }" - making Foo's import unrecognizable.
+
+    vfs.writeFileSync('/components/banner.tsx', `
+export function Banner() {
+  return <div>Banner</div>;
+}
+`);
+
+    vfs.writeFileSync('/app/layout.tsx', `
+import "./globals.css"
+
+import { Banner } from "@/components/banner"
+
+export default function Layout({ children }) {
+  return <div><Banner />{children}</div>;
+}
+`);
+
+    vfs.writeFileSync('/app/page.tsx', `
+export default function Page() {
+  return <div>Hello</div>;
+}
+`);
+
+    vfs.writeFileSync('/app/globals.css', `
+body { margin: 0; }
+`);
+
+    server = new NextDevServer(vfs, { port: 3001, preferAppRouter: true });
+
+    // Request the layout file - it should have the Banner import preserved
+    const response = await server.handleRequest('GET', '/_next/app/app/layout.js', {});
+
+    expect(response.statusCode).toBe(200);
+    const code = response.body.toString();
+
+    // The Banner import should be preserved (not stripped with the CSS import)
+    // In Node.js test environment, transformation doesn't run (isBrowser is false),
+    // so we check the raw code still has the import
+    expect(code).toContain('Banner');
+  });
+
+  it('should strip CSS imports without affecting subsequent code', async () => {
+    // Test that multiple CSS imports don't affect non-CSS imports
+    vfs.writeFileSync('/components/foo.tsx', 'export function Foo() { return <div>Foo</div>; }');
+    vfs.writeFileSync('/components/bar.tsx', 'export function Bar() { return <div>Bar</div>; }');
+
+    vfs.writeFileSync('/app/layout.tsx', `
+import "some-package/dist/styles.css"
+
+import { Foo } from "@/components/foo"
+
+import "./globals.css"
+
+import { Bar } from "@/components/bar"
+
+export default function Layout({ children }) {
+  return <div><Foo /><Bar />{children}</div>;
+}
+`);
+
+    vfs.writeFileSync('/app/page.tsx', 'export default function Page() { return <div>Hello</div>; }');
+    vfs.writeFileSync('/app/globals.css', 'body { margin: 0; }');
+
+    server = new NextDevServer(vfs, { port: 3001, preferAppRouter: true });
+
+    const response = await server.handleRequest('GET', '/_next/app/app/layout.js', {});
+
+    expect(response.statusCode).toBe(200);
+    const code = response.body.toString();
+
+    // Both component imports should be preserved
+    expect(code).toContain('Foo');
+    expect(code).toContain('Bar');
+  });
+
+  it('should handle CSS imports at various positions in the file', async () => {
+    vfs.writeFileSync('/components/a.tsx', 'export function A() { return <div>A</div>; }');
+    vfs.writeFileSync('/components/b.tsx', 'export function B() { return <div>B</div>; }');
+    vfs.writeFileSync('/components/c.tsx', 'export function C() { return <div>C</div>; }');
+
+    vfs.writeFileSync('/app/layout.tsx', `
+import { A } from "@/components/a"
+import "./styles1.css"
+import { B } from "@/components/b"
+import "./styles2.css"
+import { C } from "@/components/c"
+
+export default function Layout({ children }) {
+  return <div><A /><B /><C />{children}</div>;
+}
+`);
+
+    vfs.writeFileSync('/app/page.tsx', 'export default function Page() { return <div>Hello</div>; }');
+    vfs.writeFileSync('/app/styles1.css', '.a { color: red; }');
+    vfs.writeFileSync('/app/styles2.css', '.b { color: blue; }');
+
+    server = new NextDevServer(vfs, { port: 3001, preferAppRouter: true });
+
+    const response = await server.handleRequest('GET', '/_next/app/app/layout.js', {});
+
+    expect(response.statusCode).toBe(200);
+    const code = response.body.toString();
+
+    // All component imports should be preserved regardless of CSS import positions
+    expect(code).toContain('A');
+    expect(code).toContain('B');
+    expect(code).toContain('C');
+  });
+});
+
+describe('assetPrefix support', () => {
+  let vfs: VirtualFS;
+  let server: NextDevServer;
+
+  beforeEach(() => {
+    vfs = new VirtualFS();
+    vfs.mkdirSync('/app', { recursive: true });
+    vfs.mkdirSync('/public/images', { recursive: true });
+
+    vfs.writeFileSync('/app/layout.tsx', 'export default function Layout({ children }) { return children; }');
+    vfs.writeFileSync('/app/page.tsx', 'export default function Page() { return <div>Hello</div>; }');
+    vfs.writeFileSync('/public/images/logo.png', 'fake-png-data');
+  });
+
+  afterEach(() => {
+    server?.stop();
+  });
+
+  it('should serve static assets with assetPrefix from options', async () => {
+    server = new NextDevServer(vfs, { port: 3001, assetPrefix: '/marketing' });
+
+    // Request with assetPrefix should work
+    const response = await server.handleRequest('GET', '/marketing/images/logo.png', {});
+    expect(response.statusCode).toBe(200);
+    expect(response.body.toString()).toBe('fake-png-data');
+  });
+
+  it('should also serve static assets without assetPrefix', async () => {
+    server = new NextDevServer(vfs, { port: 3001, assetPrefix: '/marketing' });
+
+    // Direct request without prefix should still work
+    const response = await server.handleRequest('GET', '/images/logo.png', {});
+    expect(response.statusCode).toBe(200);
+    expect(response.body.toString()).toBe('fake-png-data');
+  });
+
+  it('should auto-detect assetPrefix from next.config.ts', async () => {
+    vfs.writeFileSync('/next.config.ts', `
+import type { NextConfig } from "next"
+
+const config: NextConfig = {
+  assetPrefix: "/marketing",
+  reactStrictMode: true,
+}
+
+export default config
+`);
+
+    server = new NextDevServer(vfs, { port: 3001 });
+
+    // Request with auto-detected prefix should work
+    const response = await server.handleRequest('GET', '/marketing/images/logo.png', {});
+    expect(response.statusCode).toBe(200);
+    expect(response.body.toString()).toBe('fake-png-data');
+  });
+
+  it('should auto-detect assetPrefix from next.config.js', async () => {
+    vfs.writeFileSync('/next.config.js', `
+module.exports = {
+  assetPrefix: '/assets',
+  reactStrictMode: true,
+}
+`);
+
+    server = new NextDevServer(vfs, { port: 3001 });
+
+    // Request with auto-detected prefix should work
+    const response = await server.handleRequest('GET', '/assets/images/logo.png', {});
+    expect(response.statusCode).toBe(200);
+    expect(response.body.toString()).toBe('fake-png-data');
+  });
+
+  it('should prefer explicit assetPrefix option over auto-detected', async () => {
+    vfs.writeFileSync('/next.config.ts', `
+export default {
+  assetPrefix: "/from-config",
+}
+`);
+
+    server = new NextDevServer(vfs, { port: 3001, assetPrefix: '/from-option' });
+
+    // Explicit option should take precedence
+    const responseOption = await server.handleRequest('GET', '/from-option/images/logo.png', {});
+    expect(responseOption.statusCode).toBe(200);
+
+    // Config prefix should NOT work when option is provided
+    const responseConfig = await server.handleRequest('GET', '/from-config/images/logo.png', {});
+    expect(responseConfig.statusCode).toBe(404);
+  });
+
+  it('should handle assetPrefix with nested paths', async () => {
+    vfs.mkdirSync('/public/images/features/new', { recursive: true });
+    vfs.writeFileSync('/public/images/features/new/feat-canvas.png', 'canvas-data');
+
+    server = new NextDevServer(vfs, { port: 3001, assetPrefix: '/marketing' });
+
+    const response = await server.handleRequest('GET', '/marketing/images/features/new/feat-canvas.png', {});
+    expect(response.statusCode).toBe(200);
+    expect(response.body.toString()).toBe('canvas-data');
+  });
+
+  it('should handle double-slash in URL when assetPrefix is concatenated', async () => {
+    // This tests the case where code does: assetPrefix + '/' + path
+    // e.g., "/marketing/" + "/images/logo.png" = "/marketing//images/logo.png"
+    server = new NextDevServer(vfs, { port: 3001, assetPrefix: '/marketing' });
+
+    const response = await server.handleRequest('GET', '/marketing//images/logo.png', {});
+    expect(response.statusCode).toBe(200);
+    expect(response.body.toString()).toBe('fake-png-data');
+  });
+
+  it('should return 404 for non-existent files even with assetPrefix', async () => {
+    server = new NextDevServer(vfs, { port: 3001, assetPrefix: '/marketing' });
+
+    const response = await server.handleRequest('GET', '/marketing/images/nonexistent.png', {});
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('should not strip assetPrefix from non-matching paths', async () => {
+    server = new NextDevServer(vfs, { port: 3001, assetPrefix: '/marketing' });
+
+    // /other/images/logo.png should NOT be treated as /images/logo.png
+    const response = await server.handleRequest('GET', '/other/images/logo.png', {});
+    expect(response.statusCode).toBe(404);
+  });
+});

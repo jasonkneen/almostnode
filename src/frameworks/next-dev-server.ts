@@ -7,6 +7,7 @@ import { DevServer, DevServerOptions, ResponseData, HMRUpdate } from '../dev-ser
 import { VirtualFS } from '../virtual-fs';
 import { Buffer } from '../shims/stream';
 import { simpleHash } from '../utils/hash';
+import { loadTailwindConfig } from './tailwind-config-loader';
 
 // Check if we're in a real browser environment (not jsdom or Node.js)
 const isBrowser = typeof window !== 'undefined' &&
@@ -77,6 +78,8 @@ export interface NextDevServerOptions extends DevServerOptions {
   preferAppRouter?: boolean;
   /** Environment variables (NEXT_PUBLIC_* are available in browser code via process.env) */
   env?: Record<string, string>;
+  /** Asset prefix for static files (e.g., '/marketing'). Auto-detected from next.config if not specified. */
+  assetPrefix?: string;
 }
 
 /**
@@ -736,6 +739,264 @@ export { Image };
 `;
 
 /**
+ * next/dynamic shim - Dynamic imports with loading states
+ */
+const NEXT_DYNAMIC_SHIM = `
+import React from 'react';
+
+function dynamic(importFn, options = {}) {
+  const {
+    loading: LoadingComponent,
+    ssr = true,
+  } = options;
+
+  // Create a lazy component
+  const LazyComponent = React.lazy(importFn);
+
+  // Wrapper component that handles loading state
+  function DynamicComponent(props) {
+    const fallback = LoadingComponent
+      ? React.createElement(LoadingComponent, { isLoading: true })
+      : null;
+
+    return React.createElement(
+      React.Suspense,
+      { fallback },
+      React.createElement(LazyComponent, props)
+    );
+  }
+
+  return DynamicComponent;
+}
+
+export default dynamic;
+export { dynamic };
+`;
+
+/**
+ * next/script shim - Loads external scripts
+ */
+const NEXT_SCRIPT_SHIM = `
+import React from 'react';
+
+function Script({
+  src,
+  strategy = 'afterInteractive',
+  onLoad,
+  onReady,
+  onError,
+  children,
+  dangerouslySetInnerHTML,
+  ...rest
+}) {
+  React.useEffect(function() {
+    if (!src && !children && !dangerouslySetInnerHTML) return;
+
+    var script = document.createElement('script');
+
+    if (src) {
+      script.src = src;
+      script.async = strategy !== 'beforeInteractive';
+    }
+
+    Object.keys(rest).forEach(function(key) {
+      script.setAttribute(key, rest[key]);
+    });
+
+    if (children) {
+      script.textContent = children;
+    } else if (dangerouslySetInnerHTML && dangerouslySetInnerHTML.__html) {
+      script.textContent = dangerouslySetInnerHTML.__html;
+    }
+
+    script.onload = function() {
+      if (onLoad) onLoad();
+      if (onReady) onReady();
+    };
+    script.onerror = onError;
+
+    document.head.appendChild(script);
+
+    return function() {
+      if (script.parentNode) {
+        script.parentNode.removeChild(script);
+      }
+    };
+  }, [src]);
+
+  return null;
+}
+
+export default Script;
+export { Script };
+`;
+
+/**
+ * next/font/google shim - Loads Google Fonts via CDN
+ * Uses a Proxy to dynamically handle ANY Google Font without hardcoding
+ */
+const NEXT_FONT_GOOGLE_SHIM = `
+// Track loaded fonts to avoid duplicate style injections
+const loadedFonts = new Set();
+
+/**
+ * Convert font function name to Google Fonts family name
+ * Examples:
+ *   DM_Sans -> DM Sans
+ *   Open_Sans -> Open Sans
+ *   Fraunces -> Fraunces
+ */
+function toFontFamily(fontName) {
+  return fontName.replace(/_/g, ' ');
+}
+
+/**
+ * Inject font CSS into document
+ * - Adds preconnect links for faster font loading
+ * - Loads the font from Google Fonts CDN
+ * - Creates a CSS class that sets the CSS variable
+ */
+function injectFontCSS(fontFamily, variableName, weight, style) {
+  const fontKey = fontFamily + '-' + (variableName || 'default');
+  if (loadedFonts.has(fontKey)) {
+    return;
+  }
+  loadedFonts.add(fontKey);
+
+  if (typeof document === 'undefined') {
+    return;
+  }
+
+  // Add preconnect links for faster loading (only once)
+  if (!document.querySelector('link[href="https://fonts.googleapis.com"]')) {
+    const preconnect1 = document.createElement('link');
+    preconnect1.rel = 'preconnect';
+    preconnect1.href = 'https://fonts.googleapis.com';
+    document.head.appendChild(preconnect1);
+
+    const preconnect2 = document.createElement('link');
+    preconnect2.rel = 'preconnect';
+    preconnect2.href = 'https://fonts.gstatic.com';
+    preconnect2.crossOrigin = 'anonymous';
+    document.head.appendChild(preconnect2);
+  }
+
+  // Build Google Fonts URL
+  const escapedFamily = fontFamily.replace(/ /g, '+');
+
+  // Build axis list based on options
+  let axisList = '';
+  const axes = [];
+
+  // Handle italic style
+  if (style === 'italic') {
+    axes.push('ital');
+  }
+
+  // Handle weight - use specific weight or variable range
+  if (weight && weight !== '400' && !Array.isArray(weight)) {
+    // Specific weight requested
+    axes.push('wght');
+    if (style === 'italic') {
+      axisList = ':ital,wght@1,' + weight;
+    } else {
+      axisList = ':wght@' + weight;
+    }
+  } else if (Array.isArray(weight)) {
+    // Multiple weights
+    axes.push('wght');
+    axisList = ':wght@' + weight.join(';');
+  } else {
+    // Default: request common weights for flexibility
+    axisList = ':wght@400;500;600;700';
+  }
+
+  const fontUrl = 'https://fonts.googleapis.com/css2?family=' +
+    escapedFamily + axisList + '&display=swap';
+
+  // Add link element for Google Fonts (if not already present)
+  if (!document.querySelector('link[href*="family=' + escapedFamily + '"]')) {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = fontUrl;
+    document.head.appendChild(link);
+  }
+
+  // Create style element for CSS variable at :root level (globally available)
+  // This makes the variable work without needing to apply the class to body
+  if (variableName) {
+    const styleEl = document.createElement('style');
+    styleEl.setAttribute('data-font-var', variableName);
+    styleEl.textContent = ':root { ' + variableName + ': "' + fontFamily + '", ' + (fontFamily.includes('Serif') ? 'serif' : 'sans-serif') + '; }';
+    document.head.appendChild(styleEl);
+  }
+}
+
+/**
+ * Create a font loader function for a specific font
+ */
+function createFontLoader(fontName) {
+  const fontFamily = toFontFamily(fontName);
+
+  return function(options = {}) {
+    const {
+      weight,
+      style = 'normal',
+      subsets = ['latin'],
+      variable,
+      display = 'swap',
+      preload = true,
+      fallback = ['sans-serif'],
+      adjustFontFallback = true
+    } = options;
+
+    // Inject the font CSS
+    injectFontCSS(fontFamily, variable, weight, style);
+
+    // Generate class name from variable (--font-inter -> __font-inter)
+    const className = variable
+      ? variable.replace('--', '__')
+      : '__font-' + fontName.toLowerCase().replace(/_/g, '-');
+
+    return {
+      className,
+      variable: className,
+      style: {
+        fontFamily: '"' + fontFamily + '", ' + fallback.join(', ')
+      }
+    };
+  };
+}
+
+/**
+ * Use a Proxy to dynamically create font loaders for ANY font name
+ * This allows: import { AnyGoogleFont } from "next/font/google"
+ */
+const fontProxy = new Proxy({}, {
+  get(target, prop) {
+    // Handle special properties
+    if (prop === '__esModule') return true;
+    if (prop === 'default') return fontProxy;
+    if (typeof prop !== 'string') return undefined;
+
+    // Create a font loader for this font name
+    return createFontLoader(prop);
+  }
+});
+
+// Export the proxy as both default and named exports
+export default fontProxy;
+
+// Re-export through proxy for named imports
+export const {
+  Fraunces, Inter, DM_Sans, DM_Serif_Text, Roboto, Open_Sans, Lato,
+  Montserrat, Poppins, Playfair_Display, Merriweather, Raleway, Nunito,
+  Ubuntu, Oswald, Quicksand, Work_Sans, Fira_Sans, Barlow, Mulish, Rubik,
+  Noto_Sans, Manrope, Space_Grotesk, Geist, Geist_Mono
+} = fontProxy;
+`;
+
+/**
  * NextDevServer - A lightweight Next.js-compatible development server
  *
  * Supports both routing paradigms:
@@ -786,6 +1047,15 @@ export class NextDevServer extends DevServer {
   /** Path aliases from tsconfig.json (e.g., @/* -> ./*) */
   private pathAliases: Map<string, string> = new Map();
 
+  /** Cached Tailwind config script (injected before CDN) */
+  private tailwindConfigScript: string = '';
+
+  /** Whether Tailwind config has been loaded */
+  private tailwindConfigLoaded: boolean = false;
+
+  /** Asset prefix for static files (e.g., '/marketing') */
+  private assetPrefix: string = '';
+
   constructor(vfs: VirtualFS, options: NextDevServerOptions) {
     super(vfs, options);
     this.options = options;
@@ -804,6 +1074,9 @@ export class NextDevServer extends DevServer {
 
     // Load path aliases from tsconfig.json
     this.loadPathAliases();
+
+    // Load assetPrefix from options or auto-detect from next.config
+    this.loadAssetPrefix(options.assetPrefix);
   }
 
   /**
@@ -837,6 +1110,53 @@ export class NextDevServer extends DevServer {
       }
     } catch (e) {
       // Silently ignore tsconfig parse errors
+    }
+  }
+
+  /**
+   * Load assetPrefix from options or auto-detect from next.config.ts/js
+   * The assetPrefix is used to prefix static asset URLs (e.g., '/marketing')
+   */
+  private loadAssetPrefix(optionValue?: string): void {
+    // If explicitly provided in options, use it
+    if (optionValue !== undefined) {
+      // Normalize: ensure it starts with / and doesn't end with /
+      this.assetPrefix = optionValue.startsWith('/') ? optionValue : `/${optionValue}`;
+      if (this.assetPrefix.endsWith('/')) {
+        this.assetPrefix = this.assetPrefix.slice(0, -1);
+      }
+      return;
+    }
+
+    // Try to auto-detect from next.config.ts or next.config.js
+    try {
+      const configFiles = ['/next.config.ts', '/next.config.js', '/next.config.mjs'];
+
+      for (const configPath of configFiles) {
+        if (!this.vfs.existsSync(configPath)) {
+          continue;
+        }
+
+        const content = this.vfs.readFileSync(configPath, 'utf-8');
+
+        // Extract assetPrefix from config using regex
+        // Matches: assetPrefix: "/marketing" or assetPrefix: '/marketing'
+        const match = content.match(/assetPrefix\s*:\s*["']([^"']+)["']/);
+        if (match) {
+          let prefix = match[1];
+          // Normalize: ensure it starts with / and doesn't end with /
+          if (!prefix.startsWith('/')) {
+            prefix = `/${prefix}`;
+          }
+          if (prefix.endsWith('/')) {
+            prefix = prefix.slice(0, -1);
+          }
+          this.assetPrefix = prefix;
+          return;
+        }
+      }
+    } catch (e) {
+      // Silently ignore config parse errors
     }
   }
 
@@ -930,6 +1250,34 @@ export class NextDevServer extends DevServer {
   }
 
   /**
+   * Load Tailwind config from tailwind.config.ts and generate a script
+   * that configures the Tailwind CDN at runtime
+   */
+  private async loadTailwindConfigIfNeeded(): Promise<string> {
+    // Return cached script if already loaded
+    if (this.tailwindConfigLoaded) {
+      return this.tailwindConfigScript;
+    }
+
+    try {
+      const result = await loadTailwindConfig(this.vfs, this.root);
+
+      if (result.success) {
+        this.tailwindConfigScript = result.configScript;
+      } else if (result.error) {
+        console.warn('[NextDevServer] Tailwind config warning:', result.error);
+        this.tailwindConfigScript = '';
+      }
+    } catch (error) {
+      console.warn('[NextDevServer] Failed to load tailwind.config:', error);
+      this.tailwindConfigScript = '';
+    }
+
+    this.tailwindConfigLoaded = true;
+    return this.tailwindConfigScript;
+  }
+
+  /**
    * Check if App Router is available
    */
   private hasAppRouter(): boolean {
@@ -958,11 +1306,37 @@ export class NextDevServer extends DevServer {
     body?: Buffer
   ): Promise<ResponseData> {
     const urlObj = new URL(url, 'http://localhost');
-    const pathname = urlObj.pathname;
+    let pathname = urlObj.pathname;
+
+    // Strip virtual prefix if present (e.g., /__virtual__/3001/foo -> /foo)
+    const virtualPrefixMatch = pathname.match(/^\/__virtual__\/\d+/);
+    if (virtualPrefixMatch) {
+      pathname = pathname.slice(virtualPrefixMatch[0].length) || '/';
+    }
+
+    // Strip assetPrefix if present (e.g., /marketing/images/foo.png -> /images/foo.png)
+    // This allows static assets to be served from /public when using assetPrefix in next.config
+    // Also handles double-slash case: /marketing//images/foo.png (when assetPrefix ends with /)
+    if (this.assetPrefix && pathname.startsWith(this.assetPrefix)) {
+      const rest = pathname.slice(this.assetPrefix.length);
+      // Handle both /marketing/images and /marketing//images cases
+      if (rest === '' || rest.startsWith('/')) {
+        pathname = rest || '/';
+        // Normalize double slashes that may occur from assetPrefix concatenation
+        if (pathname.startsWith('//')) {
+          pathname = pathname.slice(1);
+        }
+      }
+    }
 
     // Serve Next.js shims
     if (pathname.startsWith('/_next/shims/')) {
       return this.serveNextShim(pathname);
+    }
+
+    // Route info endpoint for client-side navigation params extraction
+    if (pathname === '/_next/route-info') {
+      return this.serveRouteInfo(urlObj.searchParams.get('pathname') || '/');
     }
 
     // Serve page components for client-side navigation (Pages Router)
@@ -1038,6 +1412,15 @@ export class NextDevServer extends DevServer {
       case 'image':
         code = NEXT_IMAGE_SHIM;
         break;
+      case 'dynamic':
+        code = NEXT_DYNAMIC_SHIM;
+        break;
+      case 'script':
+        code = NEXT_SCRIPT_SHIM;
+        break;
+      case 'font/google':
+        code = NEXT_FONT_GOOGLE_SHIM;
+        break;
       default:
         return this.notFound(pathname);
     }
@@ -1048,6 +1431,32 @@ export class NextDevServer extends DevServer {
       statusMessage: 'OK',
       headers: {
         'Content-Type': 'application/javascript; charset=utf-8',
+        'Content-Length': String(buffer.length),
+        'Cache-Control': 'no-cache',
+      },
+      body: buffer,
+    };
+  }
+
+  /**
+   * Serve route info for client-side navigation
+   * Returns params extracted from dynamic route segments
+   */
+  private serveRouteInfo(pathname: string): ResponseData {
+    const route = this.resolveAppRoute(pathname);
+
+    const info = route
+      ? { params: route.params, found: true }
+      : { params: {}, found: false };
+
+    const json = JSON.stringify(info);
+    const buffer = Buffer.from(json);
+
+    return {
+      statusCode: 200,
+      statusMessage: 'OK',
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
         'Content-Length': String(buffer.length),
         'Cache-Control': 'no-cache',
       },
@@ -1668,7 +2077,7 @@ export class NextDevServer extends DevServer {
   /**
    * Resolve App Router route to page and layout files
    */
-  private resolveAppRoute(pathname: string): { page: string; layouts: string[] } | null {
+  private resolveAppRoute(pathname: string): { page: string; layouts: string[]; params: Record<string, string | string[]> } | null {
     const extensions = ['.jsx', '.tsx', '.js', '.ts'];
     const segments = pathname === '/' ? [] : pathname.split('/').filter(Boolean);
 
@@ -1703,7 +2112,8 @@ export class NextDevServer extends DevServer {
     for (const ext of extensions) {
       const pagePath = `${dirPath}/page${ext}`;
       if (this.exists(pagePath)) {
-        return { page: pagePath, layouts };
+        // Static route - no params
+        return { page: pagePath, layouts, params: {} };
       }
     }
 
@@ -1713,18 +2123,20 @@ export class NextDevServer extends DevServer {
 
   /**
    * Resolve dynamic App Router routes like /app/[id]/page.jsx
+   * Also extracts route params from dynamic segments
    */
   private resolveAppDynamicRoute(
     pathname: string,
     segments: string[]
-  ): { page: string; layouts: string[] } | null {
+  ): { page: string; layouts: string[]; params: Record<string, string | string[]> } | null {
     const extensions = ['.jsx', '.tsx', '.js', '.ts'];
 
     const tryPath = (
       dirPath: string,
       remainingSegments: string[],
-      layouts: string[]
-    ): { page: string; layouts: string[] } | null => {
+      layouts: string[],
+      params: Record<string, string | string[]>
+    ): { page: string; layouts: string[]; params: Record<string, string | string[]> } | null => {
       // Check for layout at current level
       for (const ext of extensions) {
         const layoutPath = `${dirPath}/layout${ext}`;
@@ -1738,7 +2150,7 @@ export class NextDevServer extends DevServer {
         for (const ext of extensions) {
           const pagePath = `${dirPath}/page${ext}`;
           if (this.exists(pagePath)) {
-            return { page: pagePath, layouts };
+            return { page: pagePath, layouts, params };
           }
         }
         return null;
@@ -1749,18 +2161,34 @@ export class NextDevServer extends DevServer {
       // Try exact match first
       const exactPath = `${dirPath}/${current}`;
       if (this.isDirectory(exactPath)) {
-        const result = tryPath(exactPath, rest, layouts);
+        const result = tryPath(exactPath, rest, layouts, params);
         if (result) return result;
       }
 
-      // Try dynamic segment [param]
+      // Try dynamic segments
       try {
         const entries = this.vfs.readdirSync(dirPath);
         for (const entry of entries) {
-          if (entry.startsWith('[') && entry.endsWith(']') && !entry.includes('.')) {
+          // Handle catch-all routes [...slug]
+          if (entry.startsWith('[...') && entry.endsWith(']')) {
             const dynamicPath = `${dirPath}/${entry}`;
             if (this.isDirectory(dynamicPath)) {
-              const result = tryPath(dynamicPath, rest, layouts);
+              // Extract param name from [...slug]
+              const paramName = entry.slice(4, -1);
+              // Catch-all captures all remaining segments
+              const newParams = { ...params, [paramName]: [current, ...rest] };
+              const result = tryPath(dynamicPath, [], layouts, newParams);
+              if (result) return result;
+            }
+          }
+          // Handle single dynamic segment [param]
+          else if (entry.startsWith('[') && entry.endsWith(']') && !entry.includes('.')) {
+            const dynamicPath = `${dirPath}/${entry}`;
+            if (this.isDirectory(dynamicPath)) {
+              // Extract param name from [id]
+              const paramName = entry.slice(1, -1);
+              const newParams = { ...params, [paramName]: current };
+              const result = tryPath(dynamicPath, rest, layouts, newParams);
               if (result) return result;
             }
           }
@@ -1782,14 +2210,14 @@ export class NextDevServer extends DevServer {
       }
     }
 
-    return tryPath(this.appDir, segments, layouts);
+    return tryPath(this.appDir, segments, layouts, {});
   }
 
   /**
    * Generate HTML for App Router with nested layouts
    */
   private async generateAppRouterHtml(
-    route: { page: string; layouts: string[] },
+    route: { page: string; layouts: string[]; params: Record<string, string | string[]> },
     pathname: string
   ): Promise<string> {
     // Use virtual server prefix for all file imports so the service worker can intercept them
@@ -1820,6 +2248,9 @@ export class NextDevServer extends DevServer {
     // Generate env script for NEXT_PUBLIC_* variables
     const envScript = this.generateEnvScript();
 
+    // Load Tailwind config if available (must be injected BEFORE CDN script)
+    const tailwindConfigScript = await this.loadTailwindConfigIfNeeded();
+
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1829,6 +2260,7 @@ export class NextDevServer extends DevServer {
   <title>Next.js App</title>
   ${envScript}
   ${TAILWIND_CDN_SCRIPT}
+  ${tailwindConfigScript}
   ${CORS_PROXY_SCRIPT}
   ${globalCssLinks.join('\n  ')}
   ${REACT_REFRESH_PREAMBLE}
@@ -1851,7 +2283,10 @@ export class NextDevServer extends DevServer {
       "next/router": "${virtualPrefix}/_next/shims/router.js",
       "next/head": "${virtualPrefix}/_next/shims/head.js",
       "next/navigation": "${virtualPrefix}/_next/shims/navigation.js",
-      "next/image": "${virtualPrefix}/_next/shims/image.js"
+      "next/image": "${virtualPrefix}/_next/shims/image.js",
+      "next/dynamic": "${virtualPrefix}/_next/shims/dynamic.js",
+      "next/script": "${virtualPrefix}/_next/shims/script.js",
+      "next/font/google": "${virtualPrefix}/_next/shims/font/google.js"
     }
   }
   </script>
@@ -1864,6 +2299,39 @@ export class NextDevServer extends DevServer {
     import ReactDOM from 'react-dom/client';
 
     const virtualBase = '${virtualPrefix}';
+
+    // Initial route params (embedded by server for initial page load)
+    const initialRouteParams = ${JSON.stringify(route.params)};
+    const initialPathname = '${pathname}';
+
+    // Route params cache for client-side navigation
+    const routeParamsCache = new Map();
+    routeParamsCache.set(initialPathname, initialRouteParams);
+
+    // Extract route params from server for client-side navigation
+    async function extractRouteParams(pathname) {
+      // Strip virtual base if present
+      let route = pathname;
+      if (route.startsWith(virtualBase)) {
+        route = route.slice(virtualBase.length);
+      }
+      route = route.replace(/^\\/+/, '/') || '/';
+
+      // Check cache first
+      if (routeParamsCache.has(route)) {
+        return routeParamsCache.get(route);
+      }
+
+      try {
+        const response = await fetch(virtualBase + '/_next/route-info?pathname=' + encodeURIComponent(route));
+        const info = await response.json();
+        routeParamsCache.set(route, info.params || {});
+        return info.params || {};
+      } catch (e) {
+        console.error('[Router] Failed to extract route params:', e);
+        return {};
+      }
+    }
 
     // Convert URL path to app router page module path
     function getAppPageModulePath(pathname) {
@@ -1932,7 +2400,7 @@ export class NextDevServer extends DevServer {
     }
 
     // Wrapper for async Server Components
-    function AsyncComponent({ component: Component }) {
+    function AsyncComponent({ component: Component, pathname, search }) {
       const [content, setContent] = React.useState(null);
       const [error, setError] = React.useState(null);
 
@@ -1940,8 +2408,17 @@ export class NextDevServer extends DevServer {
         let cancelled = false;
         async function render() {
           try {
-            // Check if component is async by calling it
-            const result = Component();
+            // Create searchParams as a Promise (Next.js 15 pattern)
+            const url = new URL(window.location.href);
+            const searchParamsObj = Object.fromEntries(url.searchParams);
+            const searchParams = Promise.resolve(searchParamsObj);
+
+            // Extract route params from pathname (fetches from server for dynamic routes)
+            const routeParams = await extractRouteParams(pathname);
+            const params = Promise.resolve(routeParams);
+
+            // Call component with props like Next.js does for page components
+            const result = Component({ searchParams, params });
             if (result && typeof result.then === 'function') {
               // It's a Promise (async component)
               const resolved = await result;
@@ -1957,7 +2434,7 @@ export class NextDevServer extends DevServer {
         }
         render();
         return () => { cancelled = true; };
-      }, [Component]);
+      }, [Component, pathname, search]);
 
       if (error) {
         return React.createElement('div', { style: { color: 'red', padding: '20px' } },
@@ -1975,6 +2452,7 @@ export class NextDevServer extends DevServer {
       const [Page, setPage] = React.useState(null);
       const [layouts, setLayouts] = React.useState([]);
       const [path, setPath] = React.useState(window.location.pathname);
+      const [search, setSearch] = React.useState(window.location.search);
 
       React.useEffect(() => {
         Promise.all([loadPage(path), loadLayouts(path)]).then(([P, L]) => {
@@ -1986,7 +2464,14 @@ export class NextDevServer extends DevServer {
       React.useEffect(() => {
         const handleNavigation = async () => {
           const newPath = window.location.pathname;
+          const newSearch = window.location.search;
           console.log('[Router] handleNavigation called, newPath:', newPath, 'current path:', path);
+
+          // Always update search params
+          if (newSearch !== search) {
+            setSearch(newSearch);
+          }
+
           if (newPath !== path) {
             console.log('[Router] Path changed, loading new page...');
             setPath(newPath);
@@ -2001,12 +2486,13 @@ export class NextDevServer extends DevServer {
         window.addEventListener('popstate', handleNavigation);
         console.log('[Router] Added popstate listener for path:', path);
         return () => window.removeEventListener('popstate', handleNavigation);
-      }, [path]);
+      }, [path, search]);
 
       if (!Page) return null;
 
       // Use AsyncComponent wrapper to handle async Server Components
-      let content = React.createElement(AsyncComponent, { component: Page });
+      // Pass search to force re-render when query params change
+      let content = React.createElement(AsyncComponent, { component: Page, pathname: path, search: search });
       for (let i = layouts.length - 1; i >= 0; i--) {
         content = React.createElement(layouts[i], null, content);
       }
@@ -2166,6 +2652,9 @@ export class NextDevServer extends DevServer {
     // Generate env script for NEXT_PUBLIC_* variables
     const envScript = this.generateEnvScript();
 
+    // Load Tailwind config if available (must be injected BEFORE CDN script)
+    const tailwindConfigScript = await this.loadTailwindConfigIfNeeded();
+
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -2175,6 +2664,7 @@ export class NextDevServer extends DevServer {
   <title>Next.js App</title>
   ${envScript}
   ${TAILWIND_CDN_SCRIPT}
+  ${tailwindConfigScript}
   ${CORS_PROXY_SCRIPT}
   ${globalCssLinks.join('\n  ')}
   ${REACT_REFRESH_PREAMBLE}
@@ -2190,7 +2680,10 @@ export class NextDevServer extends DevServer {
       "next/router": "${virtualPrefix}/_next/shims/router.js",
       "next/head": "${virtualPrefix}/_next/shims/head.js",
       "next/navigation": "${virtualPrefix}/_next/shims/navigation.js",
-      "next/image": "${virtualPrefix}/_next/shims/image.js"
+      "next/image": "${virtualPrefix}/_next/shims/image.js",
+      "next/dynamic": "${virtualPrefix}/_next/shims/dynamic.js",
+      "next/script": "${virtualPrefix}/_next/shims/script.js",
+      "next/font/google": "${virtualPrefix}/_next/shims/font/google.js"
     }
   }
   </script>
@@ -2532,7 +3025,9 @@ export class NextDevServer extends DevServer {
   private stripCssImports(code: string): string {
     // Match import statements for CSS files (with or without semicolon)
     // Handles: import './styles.css'; import "./globals.css" import '../path/file.css'
-    return code.replace(/import\s+['"][^'"]+\.css['"]\s*;?/g, '// CSS import removed (loaded via <link>)');
+    // NOTE: Don't match trailing whitespace (\s*) as it would consume newlines
+    // and break subsequent imports that start on the next line
+    return code.replace(/import\s+['"][^'"]+\.css['"]\s*;?/g, '');
   }
 
   /**
