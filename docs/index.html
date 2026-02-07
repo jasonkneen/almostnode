@@ -28,6 +28,7 @@
       <div class="sidebar-label">Guide</div>
       <a href="./" class="active">Getting Started</a>
       <a href="./core-concepts.html">Core Concepts</a>
+      <a href="./security.html">Security</a>
     </div>
     <div class="sidebar-group">
       <div class="sidebar-label">Frameworks</div>
@@ -115,9 +116,78 @@ vfs<span class="op">.</span><span class="fn">writeFileSync</span><span class="op
 
 runtime<span class="op">.</span><span class="fn">runFile</span><span class="op">(</span><span class="str">'/app.js'</span><span class="op">);</span></code></pre>
 
+    <h2>Comparison with WebContainers</h2>
+    <table>
+      <tr>
+        <th>Feature</th>
+        <th>almostnode</th>
+        <th>WebContainers</th>
+      </tr>
+      <tr><td>Bundle Size</td><td>~50KB</td><td>~2MB</td></tr>
+      <tr><td>Startup Time</td><td>Instant</td><td>2-5 seconds</td></tr>
+      <tr><td>Execution Model</td><td>Main thread or Web Worker</td><td>Web Worker isolates</td></tr>
+      <tr><td>Shell</td><td><code>just-bash</code> (POSIX subset)</td><td>Full Linux kernel</td></tr>
+      <tr><td>Native Modules</td><td>Stubs only</td><td>Full support</td></tr>
+      <tr><td>Networking</td><td>Virtual ports</td><td>Real TCP/IP</td></tr>
+      <tr><td>Use Case</td><td>Lightweight playgrounds, demos</td><td>Full dev environments</td></tr>
+    </table>
+
+    <h2 id="use-cases">Use Cases</h2>
+
+    <h3>Interactive Documentation &amp; Tutorials</h3>
+    <p>Embed live, editable code examples directly in your docs. Users can modify code and see results instantly — no backend, no setup, no "open in CodeSandbox" redirect.</p>
+    <pre><code><span class="kw">import</span> <span class="op">{</span> <span class="fn">createContainer</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">'almostnode'</span><span class="op">;</span>
+
+<span class="kw">const</span> <span class="op">{</span> vfs<span class="op">,</span> runtime <span class="op">}</span> <span class="op">=</span> <span class="fn">createContainer</span><span class="op">();</span>
+<span class="kw">const</span> repl <span class="op">=</span> runtime<span class="op">.</span><span class="fn">createREPL</span><span class="op">();</span>
+
+<span class="cm">// Wire up to a text editor in your docs page</span>
+runButton<span class="op">.</span><span class="fn">addEventListener</span><span class="op">(</span><span class="str">'click'</span><span class="op">,</span> <span class="op">()</span> <span class="op">=&gt;</span> <span class="op">{</span>
+  <span class="kw">const</span> result <span class="op">=</span> repl<span class="op">.</span><span class="fn">eval</span><span class="op">(</span>editor<span class="op">.</span>value<span class="op">);</span>
+  output<span class="op">.</span>textContent <span class="op">=</span> <span class="fn">String</span><span class="op">(</span>result<span class="op">);</span>
+<span class="op">});</span></code></pre>
+    <p>This is how the REPL on the <a href="../">almostnode homepage</a> works. Users type Node.js code, hit Enter, and see results — state persists across evaluations, just like a real Node.js REPL.</p>
+
+    <h3>AI Coding Agents in the Browser</h3>
+    <p>Build AI-powered coding assistants that write, execute, and iterate on code — all client-side. The LLM generates code, almostnode runs it, and the agent can inspect output and fix errors in a loop.</p>
+    <pre><code><span class="kw">import</span> <span class="op">{</span> <span class="fn">createContainer</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">'almostnode'</span><span class="op">;</span>
+
+<span class="kw">const</span> <span class="op">{</span> vfs<span class="op">,</span> runtime<span class="op">,</span> npm <span class="op">}</span> <span class="op">=</span> <span class="fn">createContainer</span><span class="op">({</span>
+  onConsole<span class="op">:</span> <span class="op">(</span>level<span class="op">,</span> <span class="op">...</span>args<span class="op">)</span> <span class="op">=&gt;</span> logs<span class="op">.</span><span class="fn">push</span><span class="op">({</span> level<span class="op">,</span> args <span class="op">})</span>
+<span class="op">});</span>
+
+<span class="kw">async function</span> <span class="fn">agentLoop</span><span class="op">(</span>task<span class="op">)</span> <span class="op">{</span>
+  <span class="kw">let</span> code <span class="op">=</span> <span class="kw">await</span> <span class="fn">askLLM</span><span class="op">(</span>task<span class="op">);</span>
+
+  <span class="kw">for</span> <span class="op">(</span><span class="kw">let</span> i <span class="op">=</span> <span class="num">0</span><span class="op">;</span> i <span class="op">&lt;</span> <span class="num">5</span><span class="op">;</span> i<span class="op">++)</span> <span class="op">{</span>
+    vfs<span class="op">.</span><span class="fn">writeFileSync</span><span class="op">(</span><span class="str">'/agent/index.js'</span><span class="op">,</span> code<span class="op">);</span>
+    logs <span class="op">=</span> <span class="op">[];</span>
+    <span class="kw">try</span> <span class="op">{</span>
+      runtime<span class="op">.</span><span class="fn">runFile</span><span class="op">(</span><span class="str">'/agent/index.js'</span><span class="op">);</span>
+      <span class="kw">return</span> <span class="op">{</span> success<span class="op">:</span> <span class="kw">true</span><span class="op">,</span> logs <span class="op">};</span>
+    <span class="op">}</span> <span class="kw">catch</span> <span class="op">(</span>err<span class="op">)</span> <span class="op">{</span>
+      <span class="cm">// Send error back to LLM for a fix</span>
+      code <span class="op">=</span> <span class="kw">await</span> <span class="fn">askLLM</span><span class="op">(</span>
+        <span class="str">`Fix this error: ${err.message}\nCode:\n${code}`</span>
+      <span class="op">);</span>
+    <span class="op">}</span>
+  <span class="op">}</span>
+<span class="op">}</span></code></pre>
+    <p>Because everything runs in the browser, there's no backend to provision. The agent can install npm packages, read/write files, run servers, and inspect output — all within the user's browser tab. For untrusted AI-generated code, use a <a href="./security.html">cross-origin sandboxed iframe</a> to isolate execution.</p>
+
+    <h3>Code Playgrounds &amp; Sandboxes</h3>
+    <p>Build standalone coding environments where users can experiment with Node.js, Express, or full framework setups. Unlike hosted solutions, everything runs client-side — no server costs, no cold starts, no rate limits.</p>
+
+    <h3>Educational Tools</h3>
+    <p>Teach Node.js, npm, or web frameworks with live exercises. Students write code and see it execute in real time. The virtual filesystem lets you pre-populate project structures, and the REPL lets students explore APIs interactively.</p>
+
+    <h3>Prototyping &amp; Demos</h3>
+    <p>Spin up a working Next.js or Express app in seconds to demonstrate ideas, test API designs, or prototype UI components — all from a single HTML page with no build step.</p>
+
     <h2>Next Steps</h2>
     <ul>
       <li><a href="./core-concepts.html">Core Concepts</a> — understand the architecture: VirtualFS, Runtime, PackageManager, and ServerBridge</li>
+      <li><a href="./security.html">Security &amp; Sandbox</a> — cross-origin isolation, security modes, and service worker setup</li>
       <li><a href="./nextjs-guide.html">Next.js Guide</a> — run a full Next.js dev server with App Router, HMR, and CSS Modules</li>
       <li><a href="./vite-guide.html">Vite Guide</a> — set up Vite with React and hot module replacement</li>
       <li><a href="./api-reference.html">API Reference</a> — full method signatures for every class and function</li>

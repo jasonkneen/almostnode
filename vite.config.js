@@ -82,6 +82,7 @@ export default defineConfig({
         'docs/core-concepts': resolve(__dirname, 'docs/core-concepts.html'),
         'docs/nextjs-guide': resolve(__dirname, 'docs/nextjs-guide.html'),
         'docs/vite-guide': resolve(__dirname, 'docs/vite-guide.html'),
+        'docs/security': resolve(__dirname, 'docs/security.html'),
         'docs/api-reference': resolve(__dirname, 'docs/api-reference.html'),
       },
     },

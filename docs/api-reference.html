@@ -28,6 +28,7 @@
       <div class="sidebar-label">Guide</div>
       <a href="./">Getting Started</a>
       <a href="./core-concepts.html">Core Concepts</a>
+      <a href="./security.html">Security</a>
     </div>
     <div class="sidebar-group">
       <div class="sidebar-label">Frameworks</div>
@@ -47,7 +48,7 @@
     <!-- createContainer -->
     <h2>createContainer()</h2>
     <div class="method-sig">
-      <span class="fn">createContainer</span>(<span class="ty">options</span>?: <span class="ty">ContainerOptions</span>): <span class="op">{</span> vfs, runtime, npm, serverBridge, execute, runFile, on <span class="op">}</span>
+      <span class="fn">createContainer</span>(<span class="ty">options</span>?: <span class="ty">ContainerOptions</span>): <span class="op">{</span> vfs, runtime, npm, serverBridge, execute, runFile, createREPL, on <span class="op">}</span>
     </div>
     <p>Creates a complete container environment with a virtual filesystem, runtime, package manager, and server bridge.</p>
 
@@ -73,6 +74,7 @@
         <tr><td><code>serverBridge</code></td><td><code>ServerBridge</code></td><td>Service worker bridge</td></tr>
         <tr><td><code>execute</code></td><td><code>(code) =&gt; result</code></td><td>Shorthand for <code>runtime.execute()</code></td></tr>
         <tr><td><code>runFile</code></td><td><code>(path) =&gt; result</code></td><td>Shorthand for <code>runtime.runFile()</code></td></tr>
+        <tr><td><code>createREPL</code></td><td><code>() =&gt; { eval: (code) =&gt; unknown }</code></td><td>Create an interactive REPL context</td></tr>
         <tr><td><code>on</code></td><td><code>(event, listener) =&gt; void</code></td><td>Listen for events (e.g. <code>'server-ready'</code>)</td></tr>
       </tbody>
     </table>
@@ -163,9 +165,47 @@
         <tr><td><code>runFile</code></td><td><code>(path: string): {exports, module}</code></td><td>Execute a file from the VFS</td></tr>
         <tr><td><code>executeAsync</code></td><td><code>(code: string, filename?: string): Promise&lt;result&gt;</code></td><td>Execute code asynchronously</td></tr>
         <tr><td><code>runFileAsync</code></td><td><code>(path: string): Promise&lt;result&gt;</code></td><td>Execute a file asynchronously</td></tr>
+        <tr><td><code>createREPL</code></td><td><code>(): { eval: (code: string) =&gt; unknown }</code></td><td>Create a REPL context with persistent state</td></tr>
         <tr><td><code>clearCache</code></td><td><code>(): void</code></td><td>Clear module cache (for HMR)</td></tr>
         <tr><td><code>getVFS</code></td><td><code>(): VirtualFS</code></td><td>Get the VFS instance</td></tr>
         <tr><td><code>getProcess</code></td><td><code>(): Process</code></td><td>Get the process shim</td></tr>
+      </tbody>
+    </table>
+
+    <h3>createREPL()</h3>
+    <div class="method-sig">
+      runtime.<span class="fn">createREPL</span>(): <span class="op">{</span> eval: (code: <span class="ty">string</span>) =&gt; <span class="ty">unknown</span> <span class="op">}</span>
+    </div>
+    <p>Creates an interactive REPL context that evaluates expressions and persists variables between calls. Unlike <code>execute()</code> which returns <code>module.exports</code>, the REPL's <code>eval()</code> returns the value of the last expression.</p>
+
+    <pre><code><span class="kw">const</span> repl <span class="op">=</span> runtime<span class="op">.</span><span class="fn">createREPL</span><span class="op">();</span>
+
+<span class="cm">// Expression values are returned directly</span>
+repl<span class="op">.</span><span class="fn">eval</span><span class="op">(</span><span class="str">'1 + 2'</span><span class="op">);</span>                      <span class="cm">// 3</span>
+repl<span class="op">.</span><span class="fn">eval</span><span class="op">(</span><span class="str">"require('path').join('/a', 'b')"</span><span class="op">);</span> <span class="cm">// '/a/b'</span>
+
+<span class="cm">// Variables persist across calls</span>
+repl<span class="op">.</span><span class="fn">eval</span><span class="op">(</span><span class="str">'const x = 42'</span><span class="op">);</span>
+repl<span class="op">.</span><span class="fn">eval</span><span class="op">(</span><span class="str">'x * 2'</span><span class="op">);</span>                       <span class="cm">// 84</span>
+
+<span class="cm">// Full access to require, process, Buffer, console</span>
+repl<span class="op">.</span><span class="fn">eval</span><span class="op">(</span><span class="str">"const fs = require('fs')"</span><span class="op">);</span>
+repl<span class="op">.</span><span class="fn">eval</span><span class="op">(</span><span class="str">"fs.writeFileSync('/test.txt', 'hello')"</span><span class="op">);</span>
+repl<span class="op">.</span><span class="fn">eval</span><span class="op">(</span><span class="str">"fs.readFileSync('/test.txt', 'utf8')"</span><span class="op">);</span> <span class="cm">// 'hello'</span></code></pre>
+
+    <div class="callout">
+      <div class="callout-title">Security</div>
+      <p>The REPL uses <code>eval()</code> internally to return expression values. While the eval runs in an isolated closure (not the global scope), it still has the same security boundary as <code>execute()</code>. For untrusted user input, always use a <strong>cross-origin sandboxed iframe</strong> — see the <a href="./security.html">Security Guide</a>. Running eval in the main window or a same-origin iframe allows the evaluated code to access cookies, localStorage, and the DOM of the host page.</p>
+    </div>
+
+    <h4>Differences from execute()</h4>
+    <table>
+      <thead><tr><th>Feature</th><th>execute()</th><th>createREPL().eval()</th></tr></thead>
+      <tbody>
+        <tr><td>Return value</td><td><code>module.exports</code></td><td>Last expression value</td></tr>
+        <tr><td>State persistence</td><td>Fresh context each call</td><td>Variables persist</td></tr>
+        <tr><td><code>const</code>/<code>let</code></td><td>Block-scoped (lost)</td><td>Converted to <code>var</code> (persisted)</td></tr>
+        <tr><td>Use case</td><td>Run standalone scripts</td><td>Interactive shells, notebooks</td></tr>
       </tbody>
     </table>
 

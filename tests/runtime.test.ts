@@ -499,4 +499,81 @@ describe('Runtime', () => {
       expect(result2.exports).toBe(15);
     });
   });
+
+  describe('createREPL', () => {
+    it('should return expression values', () => {
+      const repl = runtime.createREPL();
+      expect(repl.eval('1 + 2')).toBe(3);
+      expect(repl.eval('"hello".toUpperCase()')).toBe('HELLO');
+    });
+
+    it('should persist variables across calls', () => {
+      const repl = runtime.createREPL();
+      repl.eval('var x = 42');
+      expect(repl.eval('x')).toBe(42);
+    });
+
+    it('should persist const/let as var', () => {
+      const repl = runtime.createREPL();
+      repl.eval('const a = 1');
+      expect(repl.eval('a')).toBe(1);
+      repl.eval('let b = 2');
+      expect(repl.eval('b')).toBe(2);
+    });
+
+    it('should have access to require', () => {
+      const repl = runtime.createREPL();
+      expect(repl.eval("require('path').join('/foo', 'bar')")).toBe('/foo/bar');
+    });
+
+    it('should have access to Buffer', () => {
+      const repl = runtime.createREPL();
+      const result = repl.eval("Buffer.from('hello').toString('base64')");
+      expect(result).toBe('aGVsbG8=');
+    });
+
+    it('should have access to process', () => {
+      const repl = runtime.createREPL();
+      expect(repl.eval('typeof process')).toBe('object');
+      expect(repl.eval('typeof process.env')).toBe('object');
+    });
+
+    it('should handle require("fs") read/write', () => {
+      vfs.mkdirSync('/repl-test', { recursive: true });
+      const repl = runtime.createREPL();
+      repl.eval("var fs = require('fs')");
+      repl.eval("fs.writeFileSync('/repl-test/hello.txt', 'Hello REPL!')");
+      expect(repl.eval("fs.readFileSync('/repl-test/hello.txt', 'utf8')")).toBe('Hello REPL!');
+    });
+
+    it('should throw on invalid code', () => {
+      const repl = runtime.createREPL();
+      expect(() => repl.eval('undefined_var')).toThrow();
+    });
+
+    it('should handle multi-statement code', () => {
+      const repl = runtime.createREPL();
+      const result = repl.eval("var a = 1; var b = 2; a + b");
+      expect(result).toBe(3);
+    });
+
+    it('should capture console.log via onConsole', () => {
+      const logs: string[][] = [];
+      const rt = new Runtime(vfs, {
+        onConsole: (method, args) => { logs.push(args.map(String)); },
+      });
+      const repl = rt.createREPL();
+      repl.eval("console.log('hello from repl')");
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toContain('hello from repl');
+    });
+
+    it('should isolate separate REPL instances', () => {
+      const repl1 = runtime.createREPL();
+      const repl2 = runtime.createREPL();
+      repl1.eval('var x = 100');
+      expect(repl1.eval('x')).toBe(100);
+      expect(() => repl2.eval('x')).toThrow();
+    });
+  });
 });

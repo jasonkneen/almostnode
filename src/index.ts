@@ -76,6 +76,7 @@ export function createContainer(options?: ContainerOptions): {
   serverBridge: ServerBridge;
   execute: (code: string, filename?: string) => { exports: unknown };
   runFile: (filename: string) => { exports: unknown };
+  createREPL: () => { eval: (code: string) => unknown };
   on: (event: string, listener: (...args: unknown[]) => void) => void;
 } {
   const vfs = new VirtualFS();
@@ -93,6 +94,7 @@ export function createContainer(options?: ContainerOptions): {
     serverBridge,
     execute: (code: string, filename?: string) => runtime.execute(code, filename),
     runFile: (filename: string) => runtime.runFile(filename),
+    createREPL: () => runtime.createREPL(),
     on: (event: string, listener: (...args: unknown[]) => void) => {
       serverBridge.on(event, listener);
     },

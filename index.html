@@ -14,9 +14,9 @@
         --surface-2: #1a1a1a;
         --border: #2a2a2a;
         --border-bright: #3a3a3a;
-        --text: #a0a0a0;
-        --text-bright: #e8e8e8;
-        --text-dim: #555;
+        --text: #c0c0c0;
+        --text-bright: #f0f0f0;
+        --text-dim: #777;
         --accent: #00ff88;
         --accent-dim: #00cc6a;
         --accent-bg: rgba(0, 255, 136, 0.06);
@@ -286,8 +286,8 @@
       .kw { color: var(--accent); }
       .str { color: #e8c872; }
       .fn { color: var(--text-bright); }
-      .cm { color: #444; }
-      .op { color: #666; }
+      .cm { color: #666; }
+      .op { color: #888; }
       .num { color: #e8c872; }
 
       /* ── Features ── */
@@ -438,6 +438,249 @@
         footer { flex-direction: column; gap: 12px; text-align: center; }
       }
 
+      /* ── REPL ── */
+      .repl-container {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 0 24px 80px;
+      }
+      .repl {
+        border: 1px solid var(--border);
+        background: var(--surface);
+        overflow: hidden;
+      }
+      .repl-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 10px 16px;
+        border-bottom: 1px solid var(--border);
+        background: var(--black);
+      }
+      .repl-header .indicator {
+        width: 6px;
+        height: 6px;
+        background: var(--accent);
+      }
+      .repl-header span {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        color: var(--text-dim);
+      }
+      .repl-header .repl-clear {
+        margin-left: auto;
+        background: none;
+        border: 1px solid var(--border);
+        color: var(--text-dim);
+        font-family: var(--mono);
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        padding: 3px 10px;
+        cursor: pointer;
+        transition: color 0.15s, border-color 0.15s;
+      }
+      .repl-header .repl-clear:hover {
+        color: var(--text-bright);
+        border-color: var(--border-bright);
+      }
+      .repl-output {
+        padding: 16px;
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        line-height: 1.7;
+        min-height: 200px;
+        max-height: 320px;
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: var(--border) transparent;
+      }
+      .repl-output .repl-line-input {
+        color: var(--text-bright);
+      }
+      .repl-output .repl-line-input::before {
+        content: '> ';
+        color: var(--accent);
+      }
+      .repl-output .repl-line-output {
+        color: var(--text);
+        padding-left: 18px;
+      }
+      .repl-output .repl-line-error {
+        color: #ff6b6b;
+        padding-left: 18px;
+      }
+      .repl-output .repl-line-log {
+        color: var(--text);
+        padding-left: 18px;
+      }
+      .repl-output .repl-line-log::before {
+        content: '';
+      }
+      .repl-input-row {
+        display: flex;
+        align-items: center;
+        border-top: 1px solid var(--border);
+        background: var(--black);
+      }
+      .repl-prompt {
+        padding: 0 0 0 16px;
+        font-family: var(--mono);
+        font-size: 0.82rem;
+        color: var(--accent);
+        user-select: none;
+      }
+      .repl-input {
+        flex: 1;
+        padding: 12px 16px 12px 8px;
+        background: transparent;
+        border: none;
+        outline: none;
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        color: var(--text-bright);
+        caret-color: var(--accent);
+      }
+      .repl-input::placeholder {
+        color: var(--text-dim);
+      }
+      .repl-body {
+        display: flex;
+      }
+      .repl-main {
+        flex: 1;
+        min-width: 0;
+      }
+      .repl-files {
+        width: 200px;
+        flex-shrink: 0;
+        border-left: 1px solid var(--border);
+        display: none;
+      }
+      .repl-files.has-files {
+        display: block;
+      }
+      .repl-files-header {
+        padding: 8px 12px;
+        font-family: var(--mono);
+        font-size: 0.6rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-dim);
+        border-bottom: 1px solid var(--border);
+        background: var(--black);
+      }
+      .repl-files-list {
+        padding: 6px 0;
+        max-height: 280px;
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: var(--border) transparent;
+      }
+      .repl-file-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 12px;
+        font-family: var(--mono);
+        font-size: 0.7rem;
+        color: var(--text-dim);
+        cursor: pointer;
+        transition: color 0.15s, background 0.15s;
+      }
+      .repl-file-item:hover {
+        color: var(--text-bright);
+        background: var(--accent-bg);
+      }
+      .repl-file-item.active {
+        color: var(--accent);
+        background: var(--accent-bg);
+      }
+      .repl-file-item svg {
+        width: 12px;
+        height: 12px;
+        flex-shrink: 0;
+        opacity: 0.5;
+      }
+      .repl-file-item span {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .repl-file-viewer {
+        display: none;
+        border-top: 1px solid var(--border);
+        background: var(--black);
+      }
+      .repl-file-viewer.open {
+        display: block;
+      }
+      .repl-file-viewer-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 12px;
+        border-bottom: 1px solid var(--border);
+      }
+      .repl-file-viewer-header span {
+        font-family: var(--mono);
+        font-size: 0.68rem;
+        color: var(--accent);
+      }
+      .repl-file-viewer-close {
+        background: none;
+        border: none;
+        color: var(--text-dim);
+        cursor: pointer;
+        font-size: 0.85rem;
+        padding: 0 4px;
+        line-height: 1;
+      }
+      .repl-file-viewer-close:hover {
+        color: var(--text-bright);
+      }
+      .repl-file-viewer pre {
+        padding: 10px 12px;
+        margin: 0;
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        line-height: 1.6;
+        color: var(--text);
+        max-height: 150px;
+        overflow: auto;
+        scrollbar-width: thin;
+        scrollbar-color: var(--border) transparent;
+        white-space: pre-wrap;
+        word-break: break-all;
+      }
+      @media (max-width: 768px) {
+        .repl-body { flex-direction: column; }
+        .repl-files { width: 100%; border-left: none; border-top: 1px solid var(--border); }
+        .repl-files-list { max-height: 120px; }
+      }
+      .repl-examples {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        padding: 10px 16px;
+        border-top: 1px solid var(--border);
+      }
+      .repl-example-btn {
+        background: var(--accent-bg);
+        border: 1px solid var(--accent-border);
+        color: var(--accent-dim);
+        font-family: var(--mono);
+        font-size: 0.65rem;
+        padding: 3px 10px;
+        cursor: pointer;
+        transition: background 0.15s, color 0.15s;
+      }
+      .repl-example-btn:hover {
+        background: rgba(0, 255, 136, 0.12);
+        color: var(--accent);
+      }
+
       /* ── Entrance animations ── */
       @keyframes fadeUp {
         from { opacity: 0; transform: translateY(16px); }
@@ -497,6 +740,201 @@
         <a href="https://github.com/macaly/almostnode/blob/main/LICENSE"><img src="https://img.shields.io/github/license/macaly/almostnode?style=flat-square&color=00ff88&labelColor=141414" alt="License"></a>
       </div>
     </section>
+
+    <!-- REPL -->
+    <div class="repl-container">
+      <div class="repl">
+        <div class="repl-header">
+          <span class="indicator"></span>
+          <span>node repl — try it right here</span>
+          <button class="repl-clear" id="repl-clear">Clear</button>
+        </div>
+        <div class="repl-body">
+          <div class="repl-main">
+            <div class="repl-output" id="repl-output">
+              <div class="repl-line-log">Welcome to almostnode REPL. Type JavaScript and press Enter.</div>
+              <div class="repl-line-log">Try: <span style="color:var(--accent)">require('path').join('/foo', 'bar')</span> or <span style="color:var(--accent)">require('crypto').randomUUID()</span></div>
+            </div>
+          </div>
+          <div class="repl-files" id="repl-files">
+            <div class="repl-files-header">Files</div>
+            <div class="repl-files-list" id="repl-files-list"></div>
+          </div>
+        </div>
+        <div class="repl-file-viewer" id="repl-file-viewer">
+          <div class="repl-file-viewer-header">
+            <span id="repl-file-viewer-name"></span>
+            <button class="repl-file-viewer-close" id="repl-file-viewer-close">&times;</button>
+          </div>
+          <pre id="repl-file-viewer-content"></pre>
+        </div>
+        <div class="repl-examples">
+          <button class="repl-example-btn" data-code="require('path').join('/foo', 'bar', 'baz.js')">path.join</button>
+          <button class="repl-example-btn" data-code="require('crypto').randomUUID()">crypto.randomUUID</button>
+          <button class="repl-example-btn" data-code="require('os').platform()">os.platform</button>
+          <button class="repl-example-btn" data-code="Buffer.from('hello world').toString('base64')">Buffer base64</button>
+          <button class="repl-example-btn" data-code="const fs = require('fs'); fs.writeFileSync('/hello.txt', 'Hello!'); fs.readFileSync('/hello.txt', 'utf8')">fs read/write</button>
+          <button class="repl-example-btn" data-code="JSON.stringify(require('url').parse('https://example.com/path?q=1'), null, 2)">url.parse</button>
+        </div>
+        <div class="repl-input-row">
+          <span class="repl-prompt">&gt;</span>
+          <input type="text" class="repl-input" id="repl-input" placeholder="Type JavaScript here..." autocomplete="off" spellcheck="false">
+        </div>
+      </div>
+    </div>
+
+    <script type="module">
+      import { createContainer } from '/src/index.ts';
+
+      const container = createContainer();
+      const repl = container.createREPL();
+      const output = document.getElementById('repl-output');
+      const input = document.getElementById('repl-input');
+
+      // Capture console.log from the runtime
+      container.runtime.onConsole = (method, args) => {
+        const line = document.createElement('div');
+        line.className = 'repl-line-log';
+        line.textContent = args.map(a => {
+          if (typeof a === 'object') {
+            try { return JSON.stringify(a, null, 2); } catch { return String(a); }
+          }
+          return String(a);
+        }).join(' ');
+        output.appendChild(line);
+      };
+
+      function formatVal(val) {
+        if (val === undefined) return undefined;
+        if (val === null) return 'null';
+        if (typeof val === 'string') return JSON.stringify(val);
+        if (typeof val === 'object') {
+          try { return JSON.stringify(val, null, 2); } catch { return String(val); }
+        }
+        return String(val);
+      }
+
+      function execRepl(code) {
+        const inputLine = document.createElement('div');
+        inputLine.className = 'repl-line-input';
+        inputLine.textContent = code;
+        output.appendChild(inputLine);
+
+        try {
+          const val = repl.eval(code);
+          const formatted = formatVal(val);
+          if (formatted !== undefined) {
+            const outLine = document.createElement('div');
+            outLine.className = 'repl-line-output';
+            outLine.textContent = formatted;
+            output.appendChild(outLine);
+          }
+        } catch (e) {
+          const errLine = document.createElement('div');
+          errLine.className = 'repl-line-error';
+          errLine.textContent = e.message || String(e);
+          output.appendChild(errLine);
+        }
+        output.scrollTop = output.scrollHeight;
+      }
+
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && input.value.trim()) {
+          execRepl(input.value.trim());
+          input.value = '';
+        }
+      });
+
+      document.getElementById('repl-clear').addEventListener('click', () => {
+        output.innerHTML = '';
+      });
+
+      document.querySelectorAll('.repl-example-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          execRepl(btn.dataset.code);
+          input.focus();
+        });
+      });
+
+      // File sidebar — watches VFS for file changes
+      const filesPanel = document.getElementById('repl-files');
+      const filesList = document.getElementById('repl-files-list');
+      const fileViewer = document.getElementById('repl-file-viewer');
+      const fileViewerName = document.getElementById('repl-file-viewer-name');
+      const fileViewerContent = document.getElementById('repl-file-viewer-content');
+      const trackedFiles = new Set();
+      const IGNORE = ['/index.js', '/node_modules'];
+
+      function shouldTrack(path) {
+        return IGNORE.every(p => !path.startsWith(p));
+      }
+
+      function refreshFiles() {
+        function walk(dir) {
+          try {
+            const entries = container.vfs.readdirSync(dir);
+            for (const entry of entries) {
+              const full = dir === '/' ? '/' + entry : dir + '/' + entry;
+              if (!shouldTrack(full)) continue;
+              try {
+                const stat = container.vfs.statSync(full);
+                if (stat.isDirectory()) { walk(full); }
+                else { trackedFiles.add(full); }
+              } catch {}
+            }
+          } catch {}
+        }
+        trackedFiles.clear();
+        walk('/');
+        renderFiles();
+      }
+
+      function renderFiles() {
+        filesList.innerHTML = '';
+        const sorted = [...trackedFiles].sort();
+        filesPanel.classList.toggle('has-files', sorted.length > 0);
+        for (const path of sorted) {
+          const item = document.createElement('div');
+          item.className = 'repl-file-item';
+          item.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>${path}</span>`;
+          item.addEventListener('click', () => openFile(path));
+          filesList.appendChild(item);
+        }
+      }
+
+      function openFile(path) {
+        try {
+          const content = container.vfs.readFileSync(path, 'utf8');
+          fileViewerName.textContent = path;
+          fileViewerContent.textContent = content;
+          fileViewer.classList.add('open');
+          filesList.querySelectorAll('.repl-file-item').forEach(el => {
+            el.classList.toggle('active', el.querySelector('span').textContent === path);
+          });
+        } catch (e) {
+          fileViewerName.textContent = path;
+          fileViewerContent.textContent = 'Error: ' + e.message;
+          fileViewer.classList.add('open');
+        }
+      }
+
+      document.getElementById('repl-file-viewer-close').addEventListener('click', () => {
+        fileViewer.classList.remove('open');
+        filesList.querySelectorAll('.repl-file-item').forEach(el => el.classList.remove('active'));
+      });
+
+      // Watch VFS for changes
+      container.vfs.on('change', (path) => {
+        if (shouldTrack(path)) {
+          trackedFiles.add(path);
+          renderFiles();
+          // If this file is currently open, refresh its content
+          if (fileViewer.classList.contains('open') && fileViewerName.textContent === path) {
+            openFile(path);
+          }
+        }
+      });
+    </script>
 
     <!-- Code Examples -->
     <div class="section">

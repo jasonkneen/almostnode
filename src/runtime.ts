@@ -1080,6 +1080,90 @@ ${code}
   getProcess(): Process {
     return this.process;
   }
+
+  /**
+   * Create a REPL context that evaluates expressions and persists state.
+   *
+   * Returns an object with an `eval` method that:
+   * - Returns the value of the last expression (unlike `execute` which returns module.exports)
+   * - Persists variables between calls (`var x = 1` then `x` works)
+   * - Has access to `require`, `console`, `process`, `Buffer` (same as execute)
+   *
+   * Security: The eval runs inside a Generator's local scope via direct eval,
+   * NOT in the global scope. Only the runtime's own require/console/process are
+   * exposed — the same sandbox boundary as execute(). Variables created in the
+   * REPL are confined to the generator's closure and cannot leak to the page.
+   *
+   * Note: `const`/`let` are transformed to `var` so they persist across calls
+   * (var hoists to the generator's function scope, const/let are block-scoped
+   * to each eval call and would be lost).
+   */
+  createREPL(): { eval: (code: string) => unknown } {
+    const require = createRequire(
+      this.vfs,
+      this.fsShim,
+      this.process,
+      '/',
+      this.moduleCache,
+      this.options,
+      this.processedCodeCache
+    );
+    const consoleWrapper = createConsoleWrapper(this.options.onConsole);
+    const process = this.process;
+    const buffer = bufferShim.Buffer;
+
+    // Use a Generator to maintain a persistent eval scope.
+    // Generator functions preserve their local scope across yields, so
+    // var declarations from eval() persist between calls. Direct eval
+    // runs in the generator's scope (not global), providing isolation.
+    const GeneratorFunction = Object.getPrototypeOf(function* () {}).constructor;
+    const replGen = new GeneratorFunction(
+      'require',
+      'console',
+      'process',
+      'Buffer',
+      `var __code, __result;
+while (true) {
+  __code = yield;
+  try {
+    __result = eval(__code);
+    yield { value: __result, error: null };
+  } catch (e) {
+    yield { value: undefined, error: e };
+  }
+}`
+    )(require, consoleWrapper, process, buffer);
+    replGen.next(); // prime the generator
+
+    return {
+      eval(code: string): unknown {
+        // Transform const/let to var for persistence across REPL calls.
+        // var declarations in direct eval are added to the enclosing function
+        // scope (the generator), so they survive across yields.
+        const transformed = code.replace(/^\s*(const|let)\s+/gm, 'var ');
+
+        // Try as expression first (wrapping in parens), fall back to statement.
+        // replGen.next(code) sends code to the generator, which evals it and
+        // yields the result — so the result is in the return value of .next().
+        const exprResult = replGen.next('(' + transformed + ')').value as { value: unknown; error: unknown };
+        if (!exprResult.error) {
+          // Advance past the wait-for-code yield so it's ready for next call
+          replGen.next();
+          return exprResult.value;
+        }
+
+        // Expression parse failed — advance past wait-for-code, then try as statement
+        replGen.next();
+        const stmtResult = replGen.next(transformed).value as { value: unknown; error: unknown };
+        if (stmtResult.error) {
+          replGen.next(); // advance past wait-for-code yield
+          throw stmtResult.error;
+        }
+        replGen.next(); // advance past wait-for-code yield
+        return stmtResult.value;
+      },
+    };
+  }
 }
 
 /**
