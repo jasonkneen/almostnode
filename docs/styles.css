@@ -9,7 +9,7 @@
   --border-bright: #3a3a3a;
   --text: #c0c0c0;
   --text-bright: #f0f0f0;
-  --text-dim: #777;
+  --text-dim: #999;
   --accent: #00ff88;
   --accent-dim: #00cc6a;
   --accent-bg: rgba(0, 255, 136, 0.06);
@@ -266,7 +266,7 @@ body::after {
 .kw { color: var(--accent); }
 .str { color: #e8c872; }
 .fn { color: var(--text-bright); }
-.cm { color: #666; }
+.cm { color: #888; }
 .op { color: #888; }
 .num { color: #e8c872; }
 .ty { color: #e8c872; }
@@ -275,7 +275,7 @@ body::after {
 .content pre.arch {
   background: var(--surface);
   border: 1px solid var(--border);
-  color: var(--text-dim);
+  color: var(--text);
   font-family: var(--mono);
   font-size: 0.82rem;
   line-height: 1.5;

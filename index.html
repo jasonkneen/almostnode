@@ -16,7 +16,7 @@
         --border-bright: #3a3a3a;
         --text: #c0c0c0;
         --text-bright: #f0f0f0;
-        --text-dim: #777;
+        --text-dim: #999;
         --accent: #00ff88;
         --accent-dim: #00cc6a;
         --accent-bg: rgba(0, 255, 136, 0.06);
@@ -286,7 +286,7 @@
       .kw { color: var(--accent); }
       .str { color: #e8c872; }
       .fn { color: var(--text-bright); }
-      .cm { color: #666; }
+      .cm { color: #888; }
       .op { color: #888; }
       .num { color: #e8c872; }
 
@@ -397,6 +397,73 @@
         border: 1px solid var(--accent-border);
       }
 
+      /* ── FAQ ── */
+      .faq-list {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        background: var(--border);
+        border: 1px solid var(--border);
+      }
+      .faq-item {
+        background: var(--surface);
+      }
+      .faq-item summary {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 16px 20px;
+        font-family: var(--sans);
+        font-size: 0.92rem;
+        font-weight: 500;
+        color: var(--text);
+        cursor: pointer;
+        list-style: none;
+        transition: color 0.15s, background 0.15s;
+      }
+      .faq-item summary::-webkit-details-marker { display: none; }
+      .faq-item summary::before {
+        content: '+';
+        font-family: var(--mono);
+        font-size: 0.85rem;
+        color: var(--text-dim);
+        flex-shrink: 0;
+        width: 18px;
+        text-align: center;
+        transition: color 0.15s;
+      }
+      .faq-item[open] summary::before {
+        content: '\2212';
+        color: var(--accent);
+      }
+      .faq-item summary:hover {
+        color: var(--text-bright);
+        background: rgba(255,255,255,0.02);
+      }
+      .faq-item[open] summary {
+        color: var(--text-bright);
+        border-bottom: 1px solid var(--border);
+      }
+      .faq-answer {
+        padding: 16px 20px 16px 50px;
+        font-size: 0.88rem;
+        line-height: 1.7;
+        color: var(--text);
+      }
+      .faq-answer a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      .faq-answer a:hover { text-decoration: underline; }
+      .faq-answer code {
+        font-family: var(--mono);
+        font-size: 0.82em;
+        background: var(--black);
+        border: 1px solid var(--border);
+        padding: 1px 5px;
+        color: var(--accent);
+      }
+
       /* ── Footer ── */
       footer {
         border-top: 1px solid var(--border);
@@ -438,247 +505,268 @@
         footer { flex-direction: column; gap: 12px; text-align: center; }
       }
 
-      /* ── REPL ── */
-      .repl-container {
+      /* ── Playground ── */
+      .pg {
         max-width: 1100px;
         margin: 0 auto;
         padding: 0 24px 80px;
       }
-      .repl {
+      .pg-shell {
         border: 1px solid var(--border);
         background: var(--surface);
         overflow: hidden;
       }
-      .repl-header {
+      .pg-tabs {
+        display: flex;
+        align-items: stretch;
+        background: var(--black);
+        border-bottom: 1px solid var(--border);
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+      .pg-tabs::-webkit-scrollbar { display: none; }
+      .pg-tab {
         display: flex;
         align-items: center;
-        gap: 10px;
-        padding: 10px 16px;
-        border-bottom: 1px solid var(--border);
-        background: var(--black);
-      }
-      .repl-header .indicator {
-        width: 6px;
-        height: 6px;
-        background: var(--accent);
-      }
-      .repl-header span {
+        gap: 8px;
+        padding: 11px 20px;
         font-family: var(--mono);
         font-size: 0.72rem;
         color: var(--text-dim);
-      }
-      .repl-header .repl-clear {
-        margin-left: auto;
         background: none;
-        border: 1px solid var(--border);
-        color: var(--text-dim);
+        border: none;
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+        white-space: nowrap;
+        transition: color 0.15s, border-color 0.15s, background 0.15s;
+      }
+      .pg-tab:hover {
+        color: var(--text);
+        background: rgba(255,255,255,0.02);
+      }
+      .pg-tab.active {
+        color: var(--text-bright);
+        border-bottom-color: var(--accent);
+      }
+      .pg-tab .dot {
+        width: 6px;
+        height: 6px;
+        background: var(--text-dim);
+        border-radius: 0;
+        flex-shrink: 0;
+        transition: background 0.3s;
+      }
+      .pg-tab.active .dot { background: var(--accent); }
+      .pg-tab.running .dot {
+        background: var(--accent);
+        animation: pulse-dot 1.2s ease infinite;
+      }
+      .pg-tab.error .dot { background: #ff6b6b; }
+      @keyframes pulse-dot {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+      }
+      .pg-status {
+        margin-left: auto;
+        padding: 0 16px;
         font-family: var(--mono);
         font-size: 0.65rem;
         text-transform: uppercase;
         letter-spacing: 0.06em;
-        padding: 3px 10px;
-        cursor: pointer;
-        transition: color 0.15s, border-color 0.15s;
-      }
-      .repl-header .repl-clear:hover {
-        color: var(--text-bright);
-        border-color: var(--border-bright);
-      }
-      .repl-output {
-        padding: 16px;
-        font-family: var(--mono);
-        font-size: 0.78rem;
-        line-height: 1.7;
-        min-height: 200px;
-        max-height: 320px;
-        overflow-y: auto;
-        scrollbar-width: thin;
-        scrollbar-color: var(--border) transparent;
-      }
-      .repl-output .repl-line-input {
-        color: var(--text-bright);
-      }
-      .repl-output .repl-line-input::before {
-        content: '> ';
-        color: var(--accent);
-      }
-      .repl-output .repl-line-output {
-        color: var(--text);
-        padding-left: 18px;
-      }
-      .repl-output .repl-line-error {
-        color: #ff6b6b;
-        padding-left: 18px;
-      }
-      .repl-output .repl-line-log {
-        color: var(--text);
-        padding-left: 18px;
-      }
-      .repl-output .repl-line-log::before {
-        content: '';
-      }
-      .repl-input-row {
-        display: flex;
-        align-items: center;
-        border-top: 1px solid var(--border);
-        background: var(--black);
-      }
-      .repl-prompt {
-        padding: 0 0 0 16px;
-        font-family: var(--mono);
-        font-size: 0.82rem;
-        color: var(--accent);
-        user-select: none;
-      }
-      .repl-input {
-        flex: 1;
-        padding: 12px 16px 12px 8px;
-        background: transparent;
-        border: none;
-        outline: none;
-        font-family: var(--mono);
-        font-size: 0.78rem;
-        color: var(--text-bright);
-        caret-color: var(--accent);
-      }
-      .repl-input::placeholder {
         color: var(--text-dim);
-      }
-      .repl-body {
-        display: flex;
-      }
-      .repl-main {
-        flex: 1;
-        min-width: 0;
-      }
-      .repl-files {
-        width: 200px;
-        flex-shrink: 0;
-        border-left: 1px solid var(--border);
-        display: none;
-      }
-      .repl-files.has-files {
-        display: block;
-      }
-      .repl-files-header {
-        padding: 8px 12px;
-        font-family: var(--mono);
-        font-size: 0.6rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-        color: var(--text-dim);
-        border-bottom: 1px solid var(--border);
-        background: var(--black);
-      }
-      .repl-files-list {
-        padding: 6px 0;
-        max-height: 280px;
-        overflow-y: auto;
-        scrollbar-width: thin;
-        scrollbar-color: var(--border) transparent;
-      }
-      .repl-file-item {
         display: flex;
         align-items: center;
         gap: 6px;
-        padding: 4px 12px;
+        white-space: nowrap;
+      }
+      .pg-body {
+        display: grid;
+        grid-template-columns: 55fr 45fr;
+        height: 480px;
+      }
+      .pg-code-panel {
+        display: flex;
+        flex-direction: column;
+        border-right: 1px solid var(--border);
+        min-width: 0;
+        overflow: hidden;
+      }
+      .pg-code-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(0,0,0,0.2);
+      }
+      .pg-code-header .filename {
         font-family: var(--mono);
         font-size: 0.7rem;
         color: var(--text-dim);
-        cursor: pointer;
-        transition: color 0.15s, background 0.15s;
       }
-      .repl-file-item:hover {
-        color: var(--text-bright);
-        background: var(--accent-bg);
-      }
-      .repl-file-item.active {
-        color: var(--accent);
-        background: var(--accent-bg);
-      }
-      .repl-file-item svg {
-        width: 12px;
-        height: 12px;
-        flex-shrink: 0;
-        opacity: 0.5;
-      }
-      .repl-file-item span {
+      .pg-code-wrap {
+        flex: 1;
         overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
+        min-height: 0;
+        position: relative;
       }
-      .repl-file-viewer {
-        display: none;
+      .pg-code-wrap textarea {
+        width: 100%;
+        height: 100%;
+        padding: 16px;
+        margin: 0;
+        border: none;
+        resize: none;
+        background: transparent;
+        font-family: var(--mono);
+        font-size: 0.75rem;
+        line-height: 1.7;
+        color: var(--accent);
+        tab-size: 2;
+        outline: none;
+        scrollbar-width: thin;
+        scrollbar-color: var(--border) transparent;
+      }
+      .pg-code-wrap textarea::selection {
+        background: rgba(0, 255, 136, 0.15);
+      }
+      .pg-code-panel[hidden] { display: none; }
+      .pg-run-bar {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 10px 16px;
         border-top: 1px solid var(--border);
         background: var(--black);
       }
-      .repl-file-viewer.open {
-        display: block;
-      }
-      .repl-file-viewer-header {
-        display: flex;
+      .pg-run-btn {
+        display: inline-flex;
         align-items: center;
-        justify-content: space-between;
-        padding: 6px 12px;
-        border-bottom: 1px solid var(--border);
-      }
-      .repl-file-viewer-header span {
-        font-family: var(--mono);
-        font-size: 0.68rem;
-        color: var(--accent);
-      }
-      .repl-file-viewer-close {
-        background: none;
-        border: none;
-        color: var(--text-dim);
-        cursor: pointer;
-        font-size: 0.85rem;
-        padding: 0 4px;
-        line-height: 1;
-      }
-      .repl-file-viewer-close:hover {
-        color: var(--text-bright);
-      }
-      .repl-file-viewer pre {
-        padding: 10px 12px;
-        margin: 0;
-        font-family: var(--mono);
-        font-size: 0.72rem;
-        line-height: 1.6;
-        color: var(--text);
-        max-height: 150px;
-        overflow: auto;
-        scrollbar-width: thin;
-        scrollbar-color: var(--border) transparent;
-        white-space: pre-wrap;
-        word-break: break-all;
-      }
-      @media (max-width: 768px) {
-        .repl-body { flex-direction: column; }
-        .repl-files { width: 100%; border-left: none; border-top: 1px solid var(--border); }
-        .repl-files-list { max-height: 120px; }
-      }
-      .repl-examples {
-        display: flex;
-        flex-wrap: wrap;
         gap: 6px;
-        padding: 10px 16px;
-        border-top: 1px solid var(--border);
+        padding: 7px 20px;
+        font-family: var(--mono);
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        background: var(--accent);
+        color: var(--black);
+        border: none;
+        cursor: pointer;
+        transition: background 0.15s, box-shadow 0.15s;
       }
-      .repl-example-btn {
-        background: var(--accent-bg);
-        border: 1px solid var(--accent-border);
-        color: var(--accent-dim);
+      .pg-run-btn:hover {
+        background: #00ffaa;
+        box-shadow: 0 0 16px rgba(0, 255, 136, 0.2);
+      }
+      .pg-run-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+        box-shadow: none;
+      }
+      .pg-run-btn svg { width: 12px; height: 12px; }
+      .pg-run-hint {
         font-family: var(--mono);
         font-size: 0.65rem;
-        padding: 3px 10px;
-        cursor: pointer;
-        transition: background 0.15s, color 0.15s;
+        color: var(--text-dim);
       }
-      .repl-example-btn:hover {
-        background: rgba(0, 255, 136, 0.12);
-        color: var(--accent);
+      .pg-output-panel {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        overflow: hidden;
+      }
+      .pg-terminal-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px;
+        border-bottom: 1px solid var(--border);
+        background: rgba(0,0,0,0.2);
+      }
+      .pg-terminal-header .label {
+        font-family: var(--mono);
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-dim);
+      }
+      .pg-terminal {
+        flex: 1;
+        padding: 12px 16px;
+        font-family: var(--mono);
+        font-size: 0.73rem;
+        line-height: 1.65;
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: var(--border) transparent;
+        min-height: 0;
+      }
+      .pg-terminal .t-info { color: var(--text-dim); }
+      .pg-terminal .t-ok { color: var(--accent); }
+      .pg-terminal .t-err { color: #ff6b6b; }
+      .pg-terminal .t-ts {
+        color: #555;
+        user-select: none;
+        margin-right: 6px;
+      }
+      .pg-terminal .t-log { color: var(--text); }
+      .pg-preview-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 16px;
+        border-top: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+        background: rgba(0,0,0,0.2);
+      }
+      .pg-preview-header .label {
+        font-family: var(--mono);
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-dim);
+      }
+      .pg-preview-url {
+        font-family: var(--mono);
+        font-size: 0.65rem;
+        color: var(--accent-dim);
+        margin-left: auto;
+        opacity: 0;
+        transition: opacity 0.2s;
+      }
+      .pg-preview-url.visible { opacity: 1; }
+      .pg-preview {
+        flex: 0 0 200px;
+        background: #0e0e1a;
+        position: relative;
+      }
+      .pg-preview iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+        display: block;
+      }
+      .pg-preview-placeholder {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        color: #444;
+        pointer-events: none;
+      }
+      .pg-preview-placeholder.hidden { display: none; }
+      @media (max-width: 768px) {
+        .pg-body {
+          grid-template-columns: 1fr;
+          height: auto;
+        }
+        .pg-code-panel { border-right: none; border-bottom: 1px solid var(--border); max-height: 360px; }
+        .pg-output-panel { max-height: 360px; }
+        .pg-preview { flex: 0 0 180px; }
       }
 
       /* ── Entrance animations ── */
@@ -735,278 +823,389 @@
       </div>
 
       <div class="badges">
-        <a href="https://www.npmjs.com/package/almostnode"><img src="https://img.shields.io/npm/v/almostnode?style=flat-square&color=00ff88&labelColor=141414" alt="npm version"></a>
-        <a href="https://github.com/macaly/almostnode"><img src="https://img.shields.io/github/stars/macaly/almostnode?style=flat-square&color=00ff88&labelColor=141414" alt="GitHub stars"></a>
-        <a href="https://github.com/macaly/almostnode/blob/main/LICENSE"><img src="https://img.shields.io/github/license/macaly/almostnode?style=flat-square&color=00ff88&labelColor=141414" alt="License"></a>
+        <a href="https://www.npmjs.com/package/almostnode"><img src="https://img.shields.io/npm/v/almostnode?style=flat-square&color=2a2a2a&labelColor=1a1a1a" alt="npm version"></a>
+        <a href="https://github.com/macaly/almostnode"><img src="https://img.shields.io/github/stars/macaly/almostnode?style=flat-square&color=2a2a2a&labelColor=1a1a1a" alt="GitHub stars"></a>
+        <a href="https://github.com/macaly/almostnode/blob/main/LICENSE"><img src="https://img.shields.io/github/license/macaly/almostnode?style=flat-square&color=2a2a2a&labelColor=1a1a1a" alt="License"></a>
       </div>
     </section>
 
-    <!-- REPL -->
-    <div class="repl-container">
-      <div class="repl">
-        <div class="repl-header">
-          <span class="indicator"></span>
-          <span>node repl — try it right here</span>
-          <button class="repl-clear" id="repl-clear">Clear</button>
+    <!-- Playground -->
+    <div class="pg">
+      <div class="pg-shell">
+        <div class="pg-tabs">
+          <button class="pg-tab active" data-tab="http"><span class="dot"></span>HTTP Server</button>
+          <button class="pg-tab" data-tab="express"><span class="dot"></span>Express</button>
+          <button class="pg-tab" data-tab="nextjs"><span class="dot"></span>Next.js</button>
+          <span class="pg-status" id="pg-status"></span>
         </div>
-        <div class="repl-body">
-          <div class="repl-main">
-            <div class="repl-output" id="repl-output">
-              <div class="repl-line-log">Welcome to almostnode REPL. Type JavaScript and press Enter.</div>
-              <div class="repl-line-log">Try: <span style="color:var(--accent)">require('path').join('/foo', 'bar')</span> or <span style="color:var(--accent)">require('crypto').randomUUID()</span></div>
+        <div class="pg-body">
+          <!-- Code panels -->
+          <div class="pg-code-panel" id="pg-code-http">
+            <div class="pg-code-header"><span class="filename">server.js</span></div>
+            <div class="pg-code-wrap">
+              <textarea id="pg-editor-http" spellcheck="false">const http = require('http');
+
+const server = http.createServer((req, res) => {
+  if (req.url === '/api/time') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ time: new Date().toISOString() }));
+    return;
+  }
+  res.writeHead(200, { 'Content-Type': 'text/html' });
+  res.end(`
+    <body style="font-family:system-ui;padding:2rem;background:#f8f9fa">
+      <h1>Hello from the browser!</h1>
+      <p>This server runs entirely in your browser.</p>
+      <a href="/api/time">Check /api/time →</a>
+    </body>
+  `);
+});
+
+server.listen(3000);</textarea>
+            </div>
+            <div class="pg-run-bar">
+              <button class="pg-run-btn" id="pg-run"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg> Run</button>
+              <span class="pg-run-hint">⌘S to re-run</span>
             </div>
           </div>
-          <div class="repl-files" id="repl-files">
-            <div class="repl-files-header">Files</div>
-            <div class="repl-files-list" id="repl-files-list"></div>
+
+          <div class="pg-code-panel" id="pg-code-express" hidden>
+            <div class="pg-code-header"><span class="filename">app.js</span></div>
+            <div class="pg-code-wrap">
+              <textarea id="pg-editor-express" spellcheck="false">const express = require('express');
+const app = express();
+
+app.get('/', (req, res) => {
+  res.send(`
+    <body style="font-family:system-ui;padding:2rem;background:#f8f9fa">
+      <h1>Express in the browser</h1>
+      <p>Installed from npm, running client-side.</p>
+      <a href="/api/hello">Try the API →</a>
+    </body>
+  `);
+});
+
+app.get('/api/hello', (req, res) => {
+  res.json({
+    message: 'Hello from Express!',
+    runtime: 'almostnode'
+  });
+});
+
+app.listen(3000);</textarea>
+            </div>
+            <div class="pg-run-bar">
+              <button class="pg-run-btn" id="pg-run-express"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg> Run</button>
+              <span class="pg-run-hint">Auto-installs Express · ⌘S to re-run</span>
+            </div>
           </div>
-        </div>
-        <div class="repl-file-viewer" id="repl-file-viewer">
-          <div class="repl-file-viewer-header">
-            <span id="repl-file-viewer-name"></span>
-            <button class="repl-file-viewer-close" id="repl-file-viewer-close">&times;</button>
+
+          <div class="pg-code-panel" id="pg-code-nextjs" hidden>
+            <div class="pg-code-header"><span class="filename">app/page.tsx</span></div>
+            <div class="pg-code-wrap">
+              <textarea id="pg-editor-nextjs" spellcheck="false">export default function Home() {
+  return (
+    <main>
+      <h1>Next.js in the browser</h1>
+      <p>
+        App Router with file-based routing,
+        running entirely client-side.
+      </p>
+    </main>
+  );
+}</textarea>
+            </div>
+            <div class="pg-run-bar">
+              <button class="pg-run-btn" id="pg-run-nextjs"><svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg> Run</button>
+              <span class="pg-run-hint">Full Next.js dev server · ⌘S to re-run</span>
+            </div>
           </div>
-          <pre id="repl-file-viewer-content"></pre>
-        </div>
-        <div class="repl-examples">
-          <button class="repl-example-btn" data-code="require('path').join('/foo', 'bar', 'baz.js')">path.join</button>
-          <button class="repl-example-btn" data-code="require('crypto').randomUUID()">crypto.randomUUID</button>
-          <button class="repl-example-btn" data-code="require('os').platform()">os.platform</button>
-          <button class="repl-example-btn" data-code="Buffer.from('hello world').toString('base64')">Buffer base64</button>
-          <button class="repl-example-btn" data-code="const fs = require('fs'); fs.writeFileSync('/hello.txt', 'Hello!'); fs.readFileSync('/hello.txt', 'utf8')">fs read/write</button>
-          <button class="repl-example-btn" data-code="JSON.stringify(require('url').parse('https://example.com/path?q=1'), null, 2)">url.parse</button>
-        </div>
-        <div class="repl-input-row">
-          <span class="repl-prompt">&gt;</span>
-          <input type="text" class="repl-input" id="repl-input" placeholder="Type JavaScript here..." autocomplete="off" spellcheck="false">
+
+          <!-- Output panel -->
+          <div class="pg-output-panel">
+            <div class="pg-terminal-header"><span class="label">Terminal</span></div>
+            <div class="pg-terminal" id="pg-terminal">
+              <div class="t-info">Click <span style="color:var(--accent)">Run</span> to start the server.</div>
+            </div>
+            <div class="pg-preview-header">
+              <span class="label">Preview</span>
+              <span class="pg-preview-url" id="pg-preview-url">localhost:3000</span>
+            </div>
+            <div class="pg-preview">
+              <div class="pg-preview-placeholder" id="pg-placeholder">output appears here</div>
+              <iframe id="pg-iframe" sandbox="allow-scripts allow-same-origin"></iframe>
+            </div>
+          </div>
         </div>
       </div>
     </div>
 
     <script type="module">
-      import { createContainer } from '/src/index.ts';
+      import { createContainer, VirtualFS, NextDevServer, getServerBridge, resetServerBridge } from '/src/index.ts';
 
-      const container = createContainer();
-      const repl = container.createREPL();
-      const output = document.getElementById('repl-output');
-      const input = document.getElementById('repl-input');
-
-      // Capture console.log from the runtime
-      container.runtime.onConsole = (method, args) => {
-        const line = document.createElement('div');
-        line.className = 'repl-line-log';
-        line.textContent = args.map(a => {
-          if (typeof a === 'object') {
-            try { return JSON.stringify(a, null, 2); } catch { return String(a); }
-          }
-          return String(a);
-        }).join(' ');
-        output.appendChild(line);
+      const terminal = document.getElementById('pg-terminal');
+      const iframe = document.getElementById('pg-iframe');
+      const placeholder = document.getElementById('pg-placeholder');
+      const previewUrl = document.getElementById('pg-preview-url');
+      const statusEl = document.getElementById('pg-status');
+      const tabs = document.querySelectorAll('.pg-tab');
+      const panels = {
+        http: document.getElementById('pg-code-http'),
+        express: document.getElementById('pg-code-express'),
+        nextjs: document.getElementById('pg-code-nextjs'),
       };
 
-      function formatVal(val) {
-        if (val === undefined) return undefined;
-        if (val === null) return 'null';
-        if (typeof val === 'string') return JSON.stringify(val);
-        if (typeof val === 'object') {
-          try { return JSON.stringify(val, null, 2); } catch { return String(val); }
-        }
-        return String(val);
+      let activeTab = 'http';
+      let running = false;
+      let currentBridge = null;
+      let currentPort = null;
+
+      const editors = {
+        http: document.getElementById('pg-editor-http'),
+        express: document.getElementById('pg-editor-express'),
+        nextjs: document.getElementById('pg-editor-nextjs'),
+      };
+
+      function ts() {
+        return new Date().toLocaleTimeString('en-US', { hour12: false });
       }
 
-      function execRepl(code) {
-        const inputLine = document.createElement('div');
-        inputLine.className = 'repl-line-input';
-        inputLine.textContent = code;
-        output.appendChild(inputLine);
-
-        try {
-          const val = repl.eval(code);
-          const formatted = formatVal(val);
-          if (formatted !== undefined) {
-            const outLine = document.createElement('div');
-            outLine.className = 'repl-line-output';
-            outLine.textContent = formatted;
-            output.appendChild(outLine);
-          }
-        } catch (e) {
-          const errLine = document.createElement('div');
-          errLine.className = 'repl-line-error';
-          errLine.textContent = e.message || String(e);
-          output.appendChild(errLine);
-        }
-        output.scrollTop = output.scrollHeight;
+      function log(msg, type = 'info') {
+        const d = document.createElement('div');
+        d.className = 't-' + type;
+        d.innerHTML = '<span class="t-ts">[' + ts() + ']</span>' + escapeHtml(msg);
+        terminal.appendChild(d);
+        terminal.scrollTop = terminal.scrollHeight;
       }
 
-      input.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && input.value.trim()) {
-          execRepl(input.value.trim());
-          input.value = '';
-        }
-      });
+      function escapeHtml(s) {
+        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
 
-      document.getElementById('repl-clear').addEventListener('click', () => {
-        output.innerHTML = '';
-      });
+      function setStatus(text) {
+        statusEl.textContent = text;
+      }
 
-      document.querySelectorAll('.repl-example-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-          execRepl(btn.dataset.code);
-          input.focus();
+      function setTabState(tabId, state) {
+        const tab = document.querySelector(`.pg-tab[data-tab="${tabId}"]`);
+        tab.classList.remove('running', 'error');
+        if (state) tab.classList.add(state);
+      }
+
+      // Tab switching
+      tabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          const id = tab.dataset.tab;
+          if (id === activeTab) return;
+          tabs.forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          Object.entries(panels).forEach(([k, p]) => {
+            p.hidden = k !== id;
+          });
+          activeTab = id;
         });
       });
 
-      // File sidebar — watches VFS for file changes
-      const filesPanel = document.getElementById('repl-files');
-      const filesList = document.getElementById('repl-files-list');
-      const fileViewer = document.getElementById('repl-file-viewer');
-      const fileViewerName = document.getElementById('repl-file-viewer-name');
-      const fileViewerContent = document.getElementById('repl-file-viewer-content');
-      const trackedFiles = new Set();
-      const IGNORE = ['/index.js', '/node_modules'];
-
-      function shouldTrack(path) {
-        return IGNORE.every(p => !path.startsWith(p));
+      function getAllRunBtns() {
+        return document.querySelectorAll('.pg-run-btn');
       }
 
-      function refreshFiles() {
-        function walk(dir) {
-          try {
-            const entries = container.vfs.readdirSync(dir);
-            for (const entry of entries) {
-              const full = dir === '/' ? '/' + entry : dir + '/' + entry;
-              if (!shouldTrack(full)) continue;
-              try {
-                const stat = container.vfs.statSync(full);
-                if (stat.isDirectory()) { walk(full); }
-                else { trackedFiles.add(full); }
-              } catch {}
-            }
-          } catch {}
-        }
-        trackedFiles.clear();
-        walk('/');
-        renderFiles();
+      function setRunning(isRunning) {
+        running = isRunning;
+        getAllRunBtns().forEach(b => b.disabled = isRunning);
       }
 
-      function renderFiles() {
-        filesList.innerHTML = '';
-        const sorted = [...trackedFiles].sort();
-        filesPanel.classList.toggle('has-files', sorted.length > 0);
-        for (const path of sorted) {
-          const item = document.createElement('div');
-          item.className = 'repl-file-item';
-          item.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><span>${path}</span>`;
-          item.addEventListener('click', () => openFile(path));
-          filesList.appendChild(item);
-        }
-      }
-
-      function openFile(path) {
+      // Load preview via serverBridge.handleRequest
+      async function loadPreview(bridge, port, path) {
         try {
-          const content = container.vfs.readFileSync(path, 'utf8');
-          fileViewerName.textContent = path;
-          fileViewerContent.textContent = content;
-          fileViewer.classList.add('open');
-          filesList.querySelectorAll('.repl-file-item').forEach(el => {
-            el.classList.toggle('active', el.querySelector('span').textContent === path);
+          const resp = await bridge.handleRequest(port, 'GET', path, {
+            host: 'localhost',
+            'user-agent': 'almostnode-playground',
           });
+          const ct = resp.headers['content-type'] || 'text/plain';
+          const body = resp.body.toString();
+          let html;
+          if (ct.includes('text/html')) {
+            html = injectNav(body);
+          } else if (ct.includes('application/json')) {
+            html = `<!DOCTYPE html><html><head><style>body{font-family:monospace;padding:1rem;background:#0e0e1a;color:#00ff88;}pre{white-space:pre-wrap;}</style></head><body><pre>${escapeHtml(JSON.stringify(JSON.parse(body), null, 2))}</pre></body></html>`;
+          } else {
+            html = `<!DOCTYPE html><html><head><style>body{font-family:monospace;padding:1rem;background:#0e0e1a;color:#eee;}pre{white-space:pre-wrap;}</style></head><body><pre>${escapeHtml(body)}</pre></body></html>`;
+          }
+          const blob = new Blob([html], { type: 'text/html' });
+          iframe.src = URL.createObjectURL(blob);
+          placeholder.classList.add('hidden');
+          previewUrl.classList.add('visible');
+          previewUrl.textContent = 'localhost:3000' + path;
         } catch (e) {
-          fileViewerName.textContent = path;
-          fileViewerContent.textContent = 'Error: ' + e.message;
-          fileViewer.classList.add('open');
+          log('Preview error: ' + e.message, 'err');
         }
       }
 
-      document.getElementById('repl-file-viewer-close').addEventListener('click', () => {
-        fileViewer.classList.remove('open');
-        filesList.querySelectorAll('.repl-file-item').forEach(el => el.classList.remove('active'));
+      function injectNav(html) {
+        const script = `<script>document.addEventListener('click',function(e){var a=e.target.closest('a');if(a){e.preventDefault();var h=a.getAttribute('href');if(h){var p=h.startsWith('/')?h:'/'+h;window.parent.postMessage({type:'pg-nav',path:p},'*');}}});<\/script>`;
+        if (html.includes('</body>')) return html.replace('</body>', script + '</body>');
+        return html + script;
+      }
+
+      window.addEventListener('message', (e) => {
+        if (e.data?.type === 'pg-nav' && currentBridge && currentPort) {
+          log('GET ' + e.data.path, 'info');
+          loadPreview(currentBridge, currentPort, e.data.path);
+        }
       });
 
-      // Watch VFS for changes
-      container.vfs.on('change', (path) => {
-        if (shouldTrack(path)) {
-          trackedFiles.add(path);
-          renderFiles();
-          // If this file is currently open, refresh its content
-          if (fileViewer.classList.contains('open') && fileViewerName.textContent === path) {
-            openFile(path);
+      // Run HTTP or Express
+      async function runSimple(tabId) {
+        terminal.innerHTML = '';
+        iframe.src = 'about:blank';
+        placeholder.classList.remove('hidden');
+        previewUrl.classList.remove('visible');
+        setRunning(true);
+        setTabState(tabId, 'running');
+        setStatus('Starting...');
+
+        try {
+          const container = createContainer();
+          container.runtime.onConsole = (method, args) => {
+            const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
+            log(msg, method === 'error' ? 'err' : 'log');
+          };
+
+          if (tabId === 'express') {
+            log('Installing express from npm...', 'info');
+            setStatus('Installing npm packages...');
+            await container.npm.install('express', {
+              onProgress: (msg) => log(msg, 'info'),
+            });
+            log('Express installed', 'ok');
+          }
+
+          resetServerBridge();
+          const bridge = getServerBridge({
+            baseUrl: window.location.origin,
+            onServerReady: (port) => {
+              currentBridge = bridge;
+              currentPort = port;
+              log('Server listening on port ' + port, 'ok');
+              setStatus('Running');
+              setTabState(tabId, 'running');
+              loadPreview(bridge, port, '/');
+            },
+          });
+
+          const code = editors[tabId].value;
+          log('Executing code...', 'info');
+          setStatus('Executing...');
+          container.runtime.execute(code, '/server.js');
+          log('Code executed', 'ok');
+
+          setTimeout(() => {
+            setRunning(false);
+          }, 500);
+        } catch (e) {
+          log('Error: ' + e.message, 'err');
+          setStatus('Error');
+          setTabState(tabId, 'error');
+          setRunning(false);
+        }
+      }
+
+      // Run Next.js
+      async function runNextjs() {
+        terminal.innerHTML = '';
+        iframe.src = 'about:blank';
+        placeholder.classList.remove('hidden');
+        previewUrl.classList.remove('visible');
+        setRunning(true);
+        setTabState('nextjs', 'running');
+        setStatus('Starting Next.js...');
+
+        try {
+          log('Creating Next.js dev server...', 'info');
+          const vfs = new VirtualFS();
+
+          const pageCode = editors.nextjs.value;
+          vfs.mkdirSync('/app', { recursive: true });
+          vfs.writeFileSync('/app/layout.tsx', `export default function RootLayout({ children }) {\n  return (\n    <html lang="en">\n      <body style={{ fontFamily: 'system-ui, sans-serif', padding: '2rem', maxWidth: '600px', margin: '0 auto', background: '#f8f9fa' }}>{children}</body>\n    </html>\n  );\n}`);
+          vfs.writeFileSync('/app/page.tsx', pageCode);
+
+          const server = new NextDevServer(vfs, { port: 3000, root: '/' });
+          const httpServer = {
+            listening: true,
+            address: () => ({ port: 3000, address: '0.0.0.0', family: 'IPv4' }),
+            handleRequest: (method, url, headers, body) => server.handleRequest(method, url, headers, body ? (typeof body === 'string' ? new TextEncoder().encode(body) : body) : undefined),
+          };
+
+          log('Initializing service worker...', 'info');
+          setStatus('Service worker...');
+          resetServerBridge();
+          const bridge = getServerBridge({ baseUrl: window.location.origin });
+          await bridge.initServiceWorker();
+          log('Service worker ready', 'ok');
+
+          bridge.registerServer(httpServer, 3000);
+          log('Next.js server registered on port 3000', 'ok');
+          setStatus('Running');
+
+          currentBridge = bridge;
+          currentPort = 3000;
+
+          // Load via service worker URL
+          iframe.src = '/__virtual__/3000/';
+          placeholder.classList.add('hidden');
+          previewUrl.classList.add('visible');
+          previewUrl.textContent = 'localhost:3000/';
+          setRunning(false);
+        } catch (e) {
+          log('Error: ' + e.message, 'err');
+          setStatus('Error');
+          setTabState('nextjs', 'error');
+          setRunning(false);
+        }
+      }
+
+      // Wire up all Run buttons
+      document.getElementById('pg-run').addEventListener('click', () => runSimple('http'));
+      document.getElementById('pg-run-express').addEventListener('click', () => runSimple('express'));
+      document.getElementById('pg-run-nextjs').addEventListener('click', () => runNextjs());
+
+      function runActive() {
+        if (running) return;
+        if (activeTab === 'nextjs') runNextjs();
+        else runSimple(activeTab);
+      }
+
+      // Cmd+S / Ctrl+S to re-run
+      document.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+          // Only intercept if focus is inside the playground
+          const pg = document.querySelector('.pg-shell');
+          if (pg && pg.contains(document.activeElement)) {
+            e.preventDefault();
+            runActive();
           }
         }
       });
+
+      // Tab key support in textareas (insert 2 spaces)
+      Object.values(editors).forEach(ta => {
+        ta.addEventListener('keydown', (e) => {
+          if (e.key === 'Tab') {
+            e.preventDefault();
+            const start = ta.selectionStart;
+            const end = ta.selectionEnd;
+            ta.value = ta.value.substring(0, start) + '  ' + ta.value.substring(end);
+            ta.selectionStart = ta.selectionEnd = start + 2;
+          }
+        });
+      });
     </script>
-
-    <!-- Code Examples -->
-    <div class="section">
-      <div class="section-header">
-        <div class="section-label">01 / Code</div>
-        <h2>See it in action</h2>
-      </div>
-      <div class="code-grid">
-
-        <div class="code-card">
-          <div class="code-tab"><span class="indicator"></span> server.ts</div>
-          <pre><span class="kw">import</span> <span class="op">{</span> <span class="fn">createContainer</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">'almostnode'</span><span class="op">;</span>
-
-<span class="kw">const</span> <span class="op">{</span> vfs<span class="op">,</span> runtime <span class="op">}</span> <span class="op">=</span> <span class="fn">createContainer</span><span class="op">();</span>
-
-vfs<span class="op">.</span><span class="fn">writeFileSync</span><span class="op">(</span><span class="str">'/server.js'</span><span class="op">,</span> <span class="str">`
-  const http = require('http');
-  http.createServer((req, res) =&gt; {
-    res.writeHead(200);
-    res.end('Hello from the browser!');
-  }).listen(3000);
-`</span><span class="op">);</span>
-
-runtime<span class="op">.</span><span class="fn">runFile</span><span class="op">(</span><span class="str">'/server.js'</span><span class="op">);</span></pre>
-        </div>
-
-        <div class="code-card">
-          <div class="code-tab"><span class="indicator"></span> app.ts</div>
-          <pre><span class="kw">import</span> <span class="op">{</span> <span class="fn">createContainer</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">'almostnode'</span><span class="op">;</span>
-
-<span class="kw">const</span> <span class="op">{</span> vfs<span class="op">,</span> npm<span class="op">,</span> runtime <span class="op">}</span> <span class="op">=</span> <span class="fn">createContainer</span><span class="op">();</span>
-
-<span class="kw">await</span> npm<span class="op">.</span><span class="fn">install</span><span class="op">(</span><span class="str">'express'</span><span class="op">);</span>
-
-vfs<span class="op">.</span><span class="fn">writeFileSync</span><span class="op">(</span><span class="str">'/app.js'</span><span class="op">,</span> <span class="str">`
-  const express = require('express');
-  const app = express();
-  app.get('/api', (req, res) =&gt; {
-    res.json({ source: 'browser' });
-  });
-  app.listen(3000);
-`</span><span class="op">);</span>
-
-runtime<span class="op">.</span><span class="fn">runFile</span><span class="op">(</span><span class="str">'/app.js'</span><span class="op">);</span></pre>
-        </div>
-
-        <div class="code-card">
-          <div class="code-tab"><span class="indicator"></span> next-app.ts</div>
-          <pre><span class="kw">import</span> <span class="op">{</span> VirtualFS<span class="op">,</span> NextDevServer<span class="op">,</span>
-  <span class="fn">getServerBridge</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">'almostnode'</span><span class="op">;</span>
-
-<span class="kw">const</span> vfs <span class="op">=</span> <span class="kw">new</span> <span class="fn">VirtualFS</span><span class="op">();</span>
-<span class="kw">const</span> server <span class="op">=</span> <span class="kw">new</span> <span class="fn">NextDevServer</span><span class="op">(</span>vfs<span class="op">);</span>
-<span class="kw">const</span> bridge <span class="op">=</span> <span class="fn">getServerBridge</span><span class="op">();</span>
-
-vfs<span class="op">.</span><span class="fn">writeFileSync</span><span class="op">(</span><span class="str">'/app/page.tsx'</span><span class="op">,</span> <span class="str">`
-  export default function Home() {
-    return &lt;h1&gt;Next.js in the browser!&lt;/h1&gt;;
-  }
-`</span><span class="op">);</span>
-
-<span class="kw">await</span> bridge<span class="op">.</span><span class="fn">initServiceWorker</span><span class="op">();</span>
-bridge<span class="op">.</span><span class="fn">registerServer</span><span class="op">(</span>server<span class="op">,</span> <span class="num">3000</span><span class="op">);</span></pre>
-        </div>
-
-      </div>
-    </div>
 
     <!-- Features -->
     <div class="section">
       <div class="section-header">
-        <div class="section-label">02 / Features</div>
+        <div class="section-label">01 / Features</div>
         <h2>Everything you need</h2>
       </div>
       <div class="features-grid">
@@ -1065,7 +1264,7 @@ bridge<span class="op">.</span><span class="fn">registerServer</span><span class
     <!-- Demos -->
     <div class="section" id="demos">
       <div class="section-header">
-        <div class="section-label">03 / Demos</div>
+        <div class="section-label">02 / Demos</div>
         <h2>Try it live</h2>
       </div>
       <div class="demos-grid">
@@ -1093,6 +1292,52 @@ bridge<span class="op">.</span><span class="fn">registerServer</span><span class
           <p>Express.js with routing, middleware, and JSON APIs — entirely in your browser.</p>
           <span class="demo-tag">express · npm install</span>
         </a>
+
+      </div>
+    </div>
+
+    <!-- FAQ -->
+    <div class="section">
+      <div class="section-header">
+        <div class="section-label">03 / FAQ</div>
+        <h2>Common questions</h2>
+      </div>
+      <div class="faq-list">
+
+        <details class="faq-item">
+          <summary>What is almostnode for?</summary>
+          <div class="faq-answer">Running demos and playgrounds of Node.js projects directly in the browser — no backend server needed. Think interactive documentation, code tutorials, and live examples that work from a static HTML page.</div>
+        </details>
+
+        <details class="faq-item">
+          <summary>Can I use this for AI coding agents?</summary>
+          <div class="faq-answer">Yes. An AI agent can write code, execute it via almostnode, inspect output, and iterate — all client-side. No sandbox server to provision or manage. For untrusted AI-generated code, run it in a <a href="./docs/security.html">sandboxed cross-origin iframe</a>.</div>
+        </details>
+
+        <details class="faq-item">
+          <summary>Is this production-ready?</summary>
+          <div class="faq-answer">No. almostnode is experimental. It covers common Node.js APIs but not all edge cases. Expect bugs, especially with complex npm packages that rely on native modules or Node.js internals. Please <a href="https://github.com/macaly/almostnode/issues">file issues on GitHub</a>.</div>
+        </details>
+
+        <details class="faq-item">
+          <summary>How should I handle security?</summary>
+          <div class="faq-answer">Always run untrusted code in a cross-origin sandboxed iframe (<code>sandbox="allow-scripts"</code>). almostnode supports both same-origin and cross-origin modes via the service worker bridge. See the <a href="./docs/security.html">Security docs</a> for setup details.</div>
+        </details>
+
+        <details class="faq-item">
+          <summary>How does this differ from WebContainers?</summary>
+          <div class="faq-answer">almostnode is ~50KB (vs ~2MB), starts instantly (vs 2-5s), and runs on the main thread or a Web Worker. WebContainers provide a full Linux kernel with real TCP/IP and native module support. almostnode is better for lightweight playgrounds and demos; WebContainers for full dev environments.</div>
+        </details>
+
+        <details class="faq-item">
+          <summary>What Node.js modules are supported?</summary>
+          <div class="faq-answer">40+ shimmed modules including <code>fs</code>, <code>path</code>, <code>http</code>, <code>crypto</code>, <code>stream</code>, <code>buffer</code>, <code>events</code>, <code>url</code>, <code>zlib</code>, and more. These are browser-compatible implementations — not the full Node.js API, but enough for most web frameworks and npm packages. See the <a href="./docs/api-reference.html">API Reference</a>.</div>
+        </details>
+
+        <details class="faq-item">
+          <summary>Does it work offline?</summary>
+          <div class="faq-answer">The runtime works offline once loaded. However, <code>npm.install()</code> fetches packages from the npm registry, so it requires an internet connection. You can pre-populate the virtual filesystem with package files for offline use.</div>
+        </details>
 
       </div>
     </div>
