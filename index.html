@@ -6,36 +6,50 @@
     <title>almostnode — Node.js in your browser</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Instrument+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
       :root {
-        --bg: #06060b;
-        --bg-card: #0d0d16;
-        --bg-code: #0a0a14;
-        --border: #16162a;
-        --border-hover: #2a2a4a;
-        --text: #d4d4e8;
-        --text-muted: #7a7a9e;
-        --text-bright: #eeeef8;
-        --accent-blue: #6d9fff;
-        --accent-purple: #b28dff;
-        --accent-pink: #f472b6;
-        --accent-green: #6ee7b7;
-        --font-body: 'DM Sans', system-ui, sans-serif;
-        --font-mono: 'JetBrains Mono', 'Menlo', 'Monaco', monospace;
-        --gradient: linear-gradient(135deg, #6d9fff 0%, #b28dff 50%, #f472b6 100%);
-        --glow: 0 0 80px rgba(109, 159, 255, 0.08), 0 0 160px rgba(178, 141, 255, 0.04);
+        --black: #0c0c0c;
+        --surface: #141414;
+        --surface-2: #1a1a1a;
+        --border: #2a2a2a;
+        --border-bright: #3a3a3a;
+        --text: #a0a0a0;
+        --text-bright: #e8e8e8;
+        --text-dim: #555;
+        --accent: #00ff88;
+        --accent-dim: #00cc6a;
+        --accent-bg: rgba(0, 255, 136, 0.06);
+        --accent-border: rgba(0, 255, 136, 0.15);
+        --mono: 'IBM Plex Mono', 'Menlo', monospace;
+        --sans: 'Instrument Sans', system-ui, sans-serif;
       }
 
       * { box-sizing: border-box; margin: 0; padding: 0; }
 
       body {
-        font-family: var(--font-body);
-        background: var(--bg);
+        font-family: var(--sans);
+        background: var(--black);
         color: var(--text);
         min-height: 100vh;
         -webkit-font-smoothing: antialiased;
-        overflow-x: hidden;
+        position: relative;
+      }
+
+      /* Scanline overlay */
+      body::after {
+        content: '';
+        position: fixed;
+        inset: 0;
+        background: repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 2px,
+          rgba(0,0,0,0.03) 2px,
+          rgba(0,0,0,0.03) 4px
+        );
+        pointer-events: none;
+        z-index: 9999;
       }
 
       /* ── Nav ── */
@@ -43,116 +57,112 @@
         position: sticky;
         top: 0;
         z-index: 100;
-        background: rgba(6, 6, 11, 0.85);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
+        background: rgba(12, 12, 12, 0.92);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
         border-bottom: 1px solid var(--border);
       }
       .nav-inner {
-        max-width: 1120px;
+        max-width: 1100px;
         margin: 0 auto;
         padding: 0 24px;
-        height: 56px;
+        height: 52px;
         display: flex;
         align-items: center;
         justify-content: space-between;
       }
       .nav-logo {
-        font-family: var(--font-mono);
-        font-size: 1rem;
-        font-weight: 500;
-        color: var(--text-bright);
+        font-family: var(--mono);
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: var(--accent);
         text-decoration: none;
-        letter-spacing: -0.02em;
-      }
-      .nav-logo span {
-        background: var(--gradient);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
+        letter-spacing: -0.01em;
       }
       .nav-links {
         display: flex;
-        gap: 28px;
+        gap: 24px;
         list-style: none;
       }
       .nav-links a {
-        font-size: 0.875rem;
-        color: var(--text-muted);
+        font-family: var(--mono);
+        font-size: 0.78rem;
+        color: var(--text-dim);
         text-decoration: none;
-        transition: color 0.2s;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        transition: color 0.15s;
       }
       .nav-links a:hover { color: var(--text-bright); }
 
       /* ── Hero ── */
       .hero {
-        text-align: center;
-        padding: 100px 24px 80px;
-        max-width: 740px;
+        padding: 96px 24px 72px;
+        max-width: 1100px;
         margin: 0 auto;
-        position: relative;
       }
-      .hero::before {
+      .hero-label {
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--accent);
+        margin-bottom: 20px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .hero-label::before {
         content: '';
-        position: absolute;
-        top: -60px;
-        left: 50%;
-        transform: translateX(-50%);
-        width: 600px;
-        height: 400px;
-        background: radial-gradient(ellipse, rgba(109, 159, 255, 0.06) 0%, rgba(178, 141, 255, 0.03) 40%, transparent 70%);
-        pointer-events: none;
+        width: 20px;
+        height: 1px;
+        background: var(--accent);
       }
       .hero h1 {
-        font-size: clamp(2.5rem, 6vw, 3.75rem);
+        font-family: var(--sans);
+        font-size: clamp(2.8rem, 7vw, 4.5rem);
         font-weight: 700;
-        letter-spacing: -0.03em;
-        line-height: 1.1;
-        background: var(--gradient);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        margin-bottom: 20px;
-        position: relative;
+        color: var(--text-bright);
+        letter-spacing: -0.04em;
+        line-height: 1.05;
+        margin-bottom: 24px;
+        max-width: 700px;
       }
       .hero .subtitle {
-        font-size: 1.15rem;
-        color: var(--text-muted);
+        font-size: 1.1rem;
+        color: var(--text);
         line-height: 1.65;
-        max-width: 540px;
-        margin: 0 auto 36px;
+        max-width: 520px;
+        margin-bottom: 40px;
       }
 
       /* Install box */
       .install-box {
         display: inline-flex;
         align-items: center;
-        gap: 12px;
-        background: var(--bg-code);
+        gap: 14px;
+        background: var(--surface);
         border: 1px solid var(--border);
-        border-radius: 10px;
-        padding: 12px 16px 12px 20px;
-        margin-bottom: 32px;
-        font-family: var(--font-mono);
-        font-size: 0.9rem;
-        position: relative;
+        padding: 14px 18px;
+        margin-bottom: 28px;
+        font-family: var(--mono);
+        font-size: 0.88rem;
       }
-      .install-box .prompt { color: var(--accent-green); user-select: none; }
+      .install-box .prompt { color: var(--accent); user-select: none; }
       .install-box code { color: var(--text-bright); }
       .install-box button {
         background: none;
         border: 1px solid var(--border);
-        border-radius: 6px;
-        color: var(--text-muted);
+        color: var(--text-dim);
         cursor: pointer;
-        padding: 5px 7px;
+        padding: 4px 6px;
         display: flex;
         align-items: center;
         transition: color 0.15s, border-color 0.15s;
       }
       .install-box button:hover {
-        color: var(--text-bright);
-        border-color: var(--border-hover);
+        color: var(--accent);
+        border-color: var(--accent-border);
       }
       .install-box button svg { width: 14px; height: 14px; }
 
@@ -160,136 +170,134 @@
       .cta-row {
         display: flex;
         gap: 12px;
-        justify-content: center;
-        margin-bottom: 28px;
+        margin-bottom: 32px;
       }
       .btn {
         display: inline-flex;
         align-items: center;
         gap: 8px;
-        padding: 11px 24px;
-        border-radius: 8px;
-        font-size: 0.9rem;
-        font-weight: 600;
+        padding: 12px 28px;
+        font-family: var(--mono);
+        font-size: 0.82rem;
+        font-weight: 500;
         text-decoration: none;
-        transition: transform 0.15s, box-shadow 0.15s;
-        font-family: var(--font-body);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        transition: all 0.15s;
+        border: 1px solid transparent;
       }
-      .btn:hover { transform: translateY(-1px); }
       .btn-primary {
-        background: var(--gradient);
-        color: #0a0a0f;
+        background: var(--accent);
+        color: var(--black);
       }
-      .btn-primary:hover { box-shadow: 0 4px 24px rgba(109, 159, 255, 0.25); }
+      .btn-primary:hover {
+        background: #00ffaa;
+        box-shadow: 0 0 20px rgba(0, 255, 136, 0.2);
+      }
       .btn-secondary {
-        background: var(--bg-card);
-        border: 1px solid var(--border);
+        background: transparent;
+        border-color: var(--border);
         color: var(--text);
       }
       .btn-secondary:hover {
-        border-color: var(--border-hover);
-        box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+        border-color: var(--text-dim);
+        color: var(--text-bright);
       }
-      .btn svg { width: 16px; height: 16px; }
+      .btn svg { width: 15px; height: 15px; }
 
       /* Badges */
       .badges {
         display: flex;
         gap: 8px;
-        justify-content: center;
         flex-wrap: wrap;
       }
       .badges a { text-decoration: none; line-height: 0; }
-      .badges img { height: 22px; }
+      .badges img { height: 20px; }
 
-      /* ── Section headings ── */
-      .section-heading {
-        text-align: center;
-        margin-bottom: 48px;
+      /* ── Section ── */
+      .section {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 0 24px;
       }
-      .section-heading h2 {
-        font-size: 1.75rem;
+      .section-header {
+        padding: 80px 0 48px;
+        border-top: 1px solid var(--border);
+      }
+      .section-label {
+        font-family: var(--mono);
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--text-dim);
+        margin-bottom: 12px;
+      }
+      .section-header h2 {
+        font-family: var(--sans);
+        font-size: 1.6rem;
         font-weight: 700;
         color: var(--text-bright);
         letter-spacing: -0.02em;
-        margin-bottom: 10px;
-      }
-      .section-heading p {
-        color: var(--text-muted);
-        font-size: 1rem;
-        max-width: 480px;
-        margin: 0 auto;
       }
 
       /* ── Code examples ── */
-      .examples-section {
-        max-width: 1120px;
-        margin: 0 auto;
-        padding: 40px 24px 80px;
-      }
       .code-grid {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
-        gap: 16px;
+        gap: 1px;
+        background: var(--border);
+        border: 1px solid var(--border);
+        margin-bottom: 80px;
       }
       @media (max-width: 900px) {
         .code-grid { grid-template-columns: 1fr; }
       }
       .code-card {
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: 12px;
+        background: var(--surface);
         overflow: hidden;
-        transition: border-color 0.2s, box-shadow 0.2s;
       }
-      .code-card:hover {
-        border-color: var(--border-hover);
-        box-shadow: var(--glow);
-      }
+      .code-card:hover { background: var(--surface-2); }
       .code-tab {
         display: flex;
         align-items: center;
         gap: 8px;
         padding: 10px 16px;
         border-bottom: 1px solid var(--border);
-        font-family: var(--font-mono);
-        font-size: 0.78rem;
-        color: var(--text-muted);
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        color: var(--text-dim);
       }
-      .code-tab .dot {
-        width: 7px; height: 7px;
-        border-radius: 50%;
-        background: var(--accent-blue);
-        opacity: 0.6;
+      .code-tab .indicator {
+        width: 6px;
+        height: 6px;
+        background: var(--accent);
       }
       .code-card pre {
         padding: 16px;
         overflow-x: auto;
-        font-family: var(--font-mono);
-        font-size: 0.78rem;
-        line-height: 1.65;
+        font-family: var(--mono);
+        font-size: 0.75rem;
+        line-height: 1.7;
         color: var(--text);
         scrollbar-width: thin;
         scrollbar-color: var(--border) transparent;
       }
-      /* Syntax colors */
-      .kw { color: #c084fc; }
-      .str { color: #86efac; }
-      .fn { color: #93c5fd; }
-      .cm { color: #4b5563; }
-      .op { color: #94a3b8; }
-      .num { color: #fbbf24; }
+      /* Syntax — muted, monochrome-forward with accent pops */
+      .kw { color: var(--accent); }
+      .str { color: #e8c872; }
+      .fn { color: var(--text-bright); }
+      .cm { color: #444; }
+      .op { color: #666; }
+      .num { color: #e8c872; }
 
       /* ── Features ── */
-      .features-section {
-        max-width: 1120px;
-        margin: 0 auto;
-        padding: 40px 24px 80px;
-      }
       .features-grid {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
-        gap: 16px;
+        gap: 1px;
+        background: var(--border);
+        border: 1px solid var(--border);
+        margin-bottom: 80px;
       }
       @media (max-width: 768px) {
         .features-grid { grid-template-columns: 1fr; }
@@ -298,129 +306,152 @@
         .features-grid { grid-template-columns: repeat(2, 1fr); }
       }
       .feature-card {
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 24px;
-        transition: border-color 0.2s;
+        background: var(--surface);
+        padding: 28px 24px;
+        transition: background 0.15s;
       }
-      .feature-card:hover { border-color: var(--border-hover); }
+      .feature-card:hover { background: var(--surface-2); }
       .feature-icon {
-        width: 40px;
-        height: 40px;
-        border-radius: 10px;
-        background: rgba(109, 159, 255, 0.08);
+        width: 32px;
+        height: 32px;
         display: flex;
         align-items: center;
         justify-content: center;
-        margin-bottom: 14px;
+        margin-bottom: 16px;
+        border: 1px solid var(--accent-border);
+        background: var(--accent-bg);
       }
       .feature-icon svg {
-        width: 20px;
-        height: 20px;
-        stroke: var(--accent-blue);
+        width: 16px;
+        height: 16px;
+        stroke: var(--accent);
         fill: none;
         stroke-width: 1.5;
         stroke-linecap: round;
         stroke-linejoin: round;
       }
       .feature-card h3 {
-        font-size: 0.95rem;
+        font-family: var(--mono);
+        font-size: 0.82rem;
         font-weight: 600;
         color: var(--text-bright);
-        margin-bottom: 6px;
+        margin-bottom: 8px;
+        letter-spacing: -0.01em;
       }
       .feature-card p {
         font-size: 0.85rem;
-        color: var(--text-muted);
+        color: var(--text-dim);
         line-height: 1.55;
       }
 
       /* ── Demos ── */
-      .demos-section {
-        max-width: 1120px;
-        margin: 0 auto;
-        padding: 40px 24px 80px;
-      }
       .demos-grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-        gap: 16px;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1px;
+        background: var(--border);
+        border: 1px solid var(--border);
+        margin-bottom: 80px;
+      }
+      @media (max-width: 900px) {
+        .demos-grid { grid-template-columns: repeat(2, 1fr); }
+      }
+      @media (max-width: 520px) {
+        .demos-grid { grid-template-columns: 1fr; }
       }
       .demo-card {
         display: block;
-        background: var(--bg-card);
-        border: 1px solid var(--border);
-        border-radius: 12px;
-        padding: 24px;
+        background: var(--surface);
+        padding: 24px 20px;
         text-decoration: none;
         color: inherit;
-        transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+        transition: background 0.15s;
       }
       .demo-card:hover {
-        border-color: var(--border-hover);
-        transform: translateY(-2px);
-        box-shadow: var(--glow);
+        background: var(--surface-2);
       }
+      .demo-card:hover h3 { color: var(--accent); }
       .demo-card h3 {
-        font-size: 1rem;
+        font-family: var(--mono);
+        font-size: 0.85rem;
         font-weight: 600;
         color: var(--text-bright);
-        margin-bottom: 6px;
+        margin-bottom: 8px;
+        transition: color 0.15s;
       }
       .demo-card p {
-        font-size: 0.85rem;
-        color: var(--text-muted);
+        font-size: 0.82rem;
+        color: var(--text-dim);
         line-height: 1.5;
-        margin-bottom: 12px;
+        margin-bottom: 14px;
       }
       .demo-tag {
         display: inline-block;
-        padding: 3px 10px;
-        border-radius: 6px;
-        font-size: 0.72rem;
-        font-family: var(--font-mono);
-        background: rgba(109, 159, 255, 0.08);
-        color: var(--accent-blue);
-        border: 1px solid rgba(109, 159, 255, 0.12);
+        padding: 2px 8px;
+        font-family: var(--mono);
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        background: var(--accent-bg);
+        color: var(--accent-dim);
+        border: 1px solid var(--accent-border);
       }
 
       /* ── Footer ── */
       footer {
         border-top: 1px solid var(--border);
-        text-align: center;
-        padding: 32px 24px;
-        color: var(--text-muted);
-        font-size: 0.8rem;
+        padding: 28px 24px;
+        max-width: 1100px;
+        margin: 0 auto;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      footer .footer-links {
+        display: flex;
+        gap: 20px;
       }
       footer a {
-        color: var(--text-muted);
+        font-family: var(--mono);
+        font-size: 0.72rem;
+        color: var(--text-dim);
         text-decoration: none;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
         transition: color 0.15s;
       }
       footer a:hover { color: var(--text-bright); }
-      footer .footer-links { display: flex; gap: 20px; justify-content: center; margin-bottom: 10px; }
-
-      /* ── Divider ── */
-      .divider {
-        max-width: 1120px;
-        margin: 0 auto;
-        padding: 0 24px;
-      }
-      .divider hr {
-        border: none;
-        border-top: 1px solid var(--border);
+      footer .license {
+        font-family: var(--mono);
+        font-size: 0.7rem;
+        color: var(--text-dim);
       }
 
-      /* Mobile nav */
+      /* ── Responsive ── */
       @media (max-width: 600px) {
-        .nav-links { gap: 16px; }
-        .nav-links a { font-size: 0.8rem; }
-        .hero { padding: 72px 20px 60px; }
-        .install-box { font-size: 0.8rem; padding: 10px 14px 10px 16px; }
-        .cta-row { flex-direction: column; align-items: center; }
-        .btn { width: 100%; max-width: 260px; justify-content: center; }
+        .nav-links { gap: 14px; }
+        .nav-links a { font-size: 0.7rem; }
+        .hero { padding: 64px 20px 56px; }
+        .hero h1 { font-size: 2.2rem; }
+        .cta-row { flex-direction: column; }
+        .btn { justify-content: center; }
+        footer { flex-direction: column; gap: 12px; text-align: center; }
       }
+
+      /* ── Entrance animations ── */
+      @keyframes fadeUp {
+        from { opacity: 0; transform: translateY(16px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .hero-label, .hero h1, .hero .subtitle,
+      .install-box, .cta-row, .badges {
+        animation: fadeUp 0.5s ease both;
+      }
+      .hero h1 { animation-delay: 0.05s; }
+      .hero .subtitle { animation-delay: 0.1s; }
+      .install-box { animation-delay: 0.15s; }
+      .cta-row { animation-delay: 0.2s; }
+      .badges { animation-delay: 0.25s; }
     </style>
   </head>
   <body>
@@ -428,7 +459,7 @@
     <!-- Nav -->
     <nav>
       <div class="nav-inner">
-        <a href="./" class="nav-logo"><span>almostnode</span></a>
+        <a href="./" class="nav-logo">almostnode</a>
         <ul class="nav-links">
           <li><a href="./docs/">Docs</a></li>
           <li><a href="#demos">Examples</a></li>
@@ -440,6 +471,7 @@
 
     <!-- Hero -->
     <section class="hero">
+      <div class="hero-label">Open Source</div>
       <h1>Node.js in your browser</h1>
       <p class="subtitle">Run Node.js, Next.js, Vite, and Express entirely in the browser. No server required.</p>
 
@@ -460,23 +492,22 @@
       </div>
 
       <div class="badges">
-        <a href="https://www.npmjs.com/package/almostnode"><img src="https://img.shields.io/npm/v/almostnode?style=flat-square&color=6d9fff&labelColor=0d0d16" alt="npm version"></a>
-        <a href="https://github.com/macaly/almostnode"><img src="https://img.shields.io/github/stars/macaly/almostnode?style=flat-square&color=b28dff&labelColor=0d0d16" alt="GitHub stars"></a>
-        <a href="https://github.com/macaly/almostnode/blob/main/LICENSE"><img src="https://img.shields.io/github/license/macaly/almostnode?style=flat-square&color=f472b6&labelColor=0d0d16" alt="License"></a>
+        <a href="https://www.npmjs.com/package/almostnode"><img src="https://img.shields.io/npm/v/almostnode?style=flat-square&color=00ff88&labelColor=141414" alt="npm version"></a>
+        <a href="https://github.com/macaly/almostnode"><img src="https://img.shields.io/github/stars/macaly/almostnode?style=flat-square&color=00ff88&labelColor=141414" alt="GitHub stars"></a>
+        <a href="https://github.com/macaly/almostnode/blob/main/LICENSE"><img src="https://img.shields.io/github/license/macaly/almostnode?style=flat-square&color=00ff88&labelColor=141414" alt="License"></a>
       </div>
     </section>
 
     <!-- Code Examples -->
-    <section class="examples-section">
-      <div class="section-heading">
+    <div class="section">
+      <div class="section-header">
+        <div class="section-label">01 / Code</div>
         <h2>See it in action</h2>
-        <p>Real Node.js APIs running entirely client-side</p>
       </div>
       <div class="code-grid">
 
-        <!-- HTTP Server -->
         <div class="code-card">
-          <div class="code-tab"><span class="dot"></span> server.ts</div>
+          <div class="code-tab"><span class="indicator"></span> server.ts</div>
           <pre><span class="kw">import</span> <span class="op">{</span> <span class="fn">createContainer</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">'almostnode'</span><span class="op">;</span>
 
 <span class="kw">const</span> <span class="op">{</span> vfs<span class="op">,</span> runtime <span class="op">}</span> <span class="op">=</span> <span class="fn">createContainer</span><span class="op">();</span>
@@ -492,9 +523,8 @@ vfs<span class="op">.</span><span class="fn">writeFileSync</span><span class="op
 runtime<span class="op">.</span><span class="fn">runFile</span><span class="op">(</span><span class="str">'/server.js'</span><span class="op">);</span></pre>
         </div>
 
-        <!-- Express -->
         <div class="code-card">
-          <div class="code-tab"><span class="dot" style="background:var(--accent-purple)"></span> app.ts</div>
+          <div class="code-tab"><span class="indicator"></span> app.ts</div>
           <pre><span class="kw">import</span> <span class="op">{</span> <span class="fn">createContainer</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">'almostnode'</span><span class="op">;</span>
 
 <span class="kw">const</span> <span class="op">{</span> vfs<span class="op">,</span> npm<span class="op">,</span> runtime <span class="op">}</span> <span class="op">=</span> <span class="fn">createContainer</span><span class="op">();</span>
@@ -513,9 +543,8 @@ vfs<span class="op">.</span><span class="fn">writeFileSync</span><span class="op
 runtime<span class="op">.</span><span class="fn">runFile</span><span class="op">(</span><span class="str">'/app.js'</span><span class="op">);</span></pre>
         </div>
 
-        <!-- Next.js -->
         <div class="code-card">
-          <div class="code-tab"><span class="dot" style="background:var(--accent-pink)"></span> next-app.ts</div>
+          <div class="code-tab"><span class="indicator"></span> next-app.ts</div>
           <pre><span class="kw">import</span> <span class="op">{</span> VirtualFS<span class="op">,</span> NextDevServer<span class="op">,</span>
   <span class="fn">getServerBridge</span> <span class="op">}</span> <span class="kw">from</span> <span class="str">'almostnode'</span><span class="op">;</span>
 
@@ -534,15 +563,13 @@ bridge<span class="op">.</span><span class="fn">registerServer</span><span class
         </div>
 
       </div>
-    </section>
-
-    <div class="divider"><hr></div>
+    </div>
 
     <!-- Features -->
-    <section class="features-section">
-      <div class="section-heading">
+    <div class="section">
+      <div class="section-header">
+        <div class="section-label">02 / Features</div>
         <h2>Everything you need</h2>
-        <p>A complete Node.js environment, no backend required</p>
       </div>
       <div class="features-grid">
 
@@ -595,15 +622,13 @@ bridge<span class="op">.</span><span class="fn">registerServer</span><span class
         </div>
 
       </div>
-    </section>
-
-    <div class="divider"><hr></div>
+    </div>
 
     <!-- Demos -->
-    <section class="demos-section" id="demos">
-      <div class="section-heading">
-        <h2>Try the demos</h2>
-        <p>Interactive examples running live in your browser</p>
+    <div class="section" id="demos">
+      <div class="section-header">
+        <div class="section-label">03 / Demos</div>
+        <h2>Try it live</h2>
       </div>
       <div class="demos-grid">
 
@@ -615,24 +640,24 @@ bridge<span class="op">.</span><span class="fn">registerServer</span><span class
 
         <a class="demo-card" href="./examples/next-demo.html">
           <h3>Next.js App</h3>
-          <p>A full Next.js development server with App Router, file-based routing, and HMR — all client-side.</p>
+          <p>A full Next.js development server with App Router, file-based routing, and HMR.</p>
           <span class="demo-tag">next.js · app router · hmr</span>
         </a>
 
         <a class="demo-card" href="./examples/vite-demo.html">
           <h3>Vite Dev Server</h3>
-          <p>Vite running in the browser with React, hot module replacement, and npm package installation.</p>
+          <p>Vite running in the browser with React, hot module replacement, and npm packages.</p>
           <span class="demo-tag">vite · react · hmr</span>
         </a>
 
         <a class="demo-card" href="./examples/express-demo.html">
           <h3>Express Server</h3>
-          <p>Express.js with routing, middleware, and JSON APIs — installed and running entirely in your browser.</p>
+          <p>Express.js with routing, middleware, and JSON APIs — entirely in your browser.</p>
           <span class="demo-tag">express · npm install</span>
         </a>
 
       </div>
-    </section>
+    </div>
 
     <!-- Footer -->
     <footer>
@@ -641,7 +666,7 @@ bridge<span class="op">.</span><span class="fn">registerServer</span><span class
         <a href="https://www.npmjs.com/package/almostnode">npm</a>
         <a href="./docs/">Docs</a>
       </div>
-      <span>MIT License</span>
+      <span class="license">MIT License</span>
     </footer>
 
   </body>
