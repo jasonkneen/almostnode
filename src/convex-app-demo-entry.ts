@@ -765,7 +765,7 @@ export default app;
   // This is the most reliable completion signal since it fires AFTER the push POST finishes.
   const cliExitPromise = new Promise<number>((resolve) => {
     const proc = cliRuntime!.getProcess();
-    proc.on('exit', (code: number) => {
+    proc.on('exit', (code: unknown) => {
       log(`CLI process exited with code ${code}`);
       const crashInfo = (globalThis as any).__cliCrashInfo;
       if (crashInfo) {
@@ -776,7 +776,7 @@ export default app;
       if (exitInfo) {
         log(`CLI exit: code=${exitInfo.code} err=${exitInfo.msg || 'none'}`, exitInfo.code === 0 ? 'success' : 'error');
       }
-      resolve(code);
+      resolve(code as number);
     });
   });
 
