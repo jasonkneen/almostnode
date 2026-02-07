@@ -5,8 +5,12 @@
 
 import { VirtualFS, createNodeError } from '../virtual-fs';
 import type { Stats, FSWatcher, WatchListener, WatchEventType } from '../virtual-fs';
+import { uint8ToBase64, uint8ToHex } from '../utils/binary-encoding';
 
 export type { Stats, FSWatcher, WatchListener, WatchEventType };
+
+const _decoder = new TextDecoder();
+const _encoder = new TextEncoder();
 
 export interface FsShim {
   readFileSync(path: string): Buffer;
@@ -131,19 +135,13 @@ function createBuffer(data: Uint8Array): Buffer {
   Object.defineProperty(buffer, 'toString', {
     value: function (encoding?: string) {
       if (encoding === 'utf8' || encoding === 'utf-8' || !encoding) {
-        return new TextDecoder().decode(this);
+        return _decoder.decode(this);
       }
       if (encoding === 'base64') {
-        let binary = '';
-        for (let i = 0; i < this.length; i++) {
-          binary += String.fromCharCode(this[i]);
-        }
-        return btoa(binary);
+        return uint8ToBase64(this);
       }
       if (encoding === 'hex') {
-        return Array.from(this as Uint8Array)
-          .map((b) => b.toString(16).padStart(2, '0'))
-          .join('');
+        return uint8ToHex(this);
       }
       throw new Error(`Unsupported encoding: ${encoding}`);
     },
@@ -437,7 +435,7 @@ export function createFsShim(vfs: VirtualFS, getCwd?: () => string): FsShim {
           throw err;
         }
         // Convert string to Uint8Array if needed
-        const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+        const bytes = typeof data === 'string' ? _encoder.encode(data) : data;
         // Replace entire content
         entry.content = new Uint8Array(bytes);
         entry.position = bytes.length;
@@ -620,7 +618,7 @@ export function createFsShim(vfs: VirtualFS, getCwd?: () => string): FsShim {
       // Handle string input
       let data: Uint8Array;
       if (typeof buffer === 'string') {
-        data = new TextEncoder().encode(buffer);
+        data = _encoder.encode(buffer);
         offset = 0;
         length = data.length;
       } else {

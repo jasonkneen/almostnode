@@ -103,8 +103,14 @@ describe('path module (Node.js compat)', () => {
     });
 
     it('should resolve relative paths', () => {
-      assert.strictEqual(resolve('foo', 'bar'), '/foo/bar');
+      const cwd = process.cwd();
+      assert.strictEqual(resolve('foo', 'bar'), cwd + '/foo/bar');
       assert.strictEqual(resolve('foo', '/bar'), '/bar');
+    });
+
+    it('should resolve "." to cwd', () => {
+      const cwd = process.cwd();
+      assert.strictEqual(resolve('.'), cwd);
     });
 
     it('should resolve multiple segments', () => {
@@ -391,6 +397,46 @@ describe('path module (Node.js compat)', () => {
       expect(path.sep).toBe(sep);
       expect(path.delimiter).toBe(delimiter);
       expect(path.posix).toBeTruthy();
+    });
+  });
+
+  describe('path.resolve() uses process.cwd()', () => {
+    // Regression: path.resolve('convex') must return '{cwd}/convex', not '/convex'.
+    // The Convex CLI relies on this to resolve 'convex' → '/project/convex' when cwd=/project.
+    it('should prepend process.cwd() for bare relative paths', () => {
+      const cwd = process.cwd();
+      assert.strictEqual(resolve('convex'), `${cwd}/convex`);
+      assert.strictEqual(resolve('src', 'index.ts'), `${cwd}/src/index.ts`);
+    });
+
+    it('should prepend process.cwd() for dot-relative paths', () => {
+      const cwd = process.cwd();
+      assert.strictEqual(resolve('./convex'), `${cwd}/convex`);
+      assert.strictEqual(resolve('./src/index.ts'), `${cwd}/src/index.ts`);
+    });
+
+    it('should not prepend cwd for absolute paths', () => {
+      assert.strictEqual(resolve('/project/convex'), '/project/convex');
+      assert.strictEqual(resolve('/foo', 'bar'), '/foo/bar');
+    });
+
+    it('should use last absolute path as base', () => {
+      const cwd = process.cwd();
+      assert.strictEqual(resolve('relative', '/absolute', 'more'), '/absolute/more');
+      assert.strictEqual(resolve('relative', 'still-relative'), `${cwd}/relative/still-relative`);
+    });
+
+    it('should resolve relative paths using custom cwd (Convex CLI regression)', () => {
+      // Simulates the Convex CLI scenario: cwd=/project, resolve('convex') → '/project/convex'
+      const origCwd = process.cwd;
+      try {
+        process.cwd = () => '/project';
+        assert.strictEqual(resolve('convex'), '/project/convex');
+        assert.strictEqual(resolve('.'), '/project');
+        assert.strictEqual(resolve('convex', '_generated'), '/project/convex/_generated');
+      } finally {
+        process.cwd = origCwd;
+      }
     });
   });
 

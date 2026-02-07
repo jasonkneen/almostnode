@@ -307,6 +307,19 @@ export default function handler(req, res) {
       expect(html).toContain('__vite_hot_context__');
     });
 
+    it('should place importmap before module scripts', async () => {
+      const response = await server.handleRequest('GET', '/', {});
+      const html = response.body.toString();
+
+      // Per HTML spec, importmap must precede all <script type="module"> tags
+      const importmapPos = html.indexOf('<script type="importmap">');
+      const firstModulePos = html.indexOf('<script type="module">');
+
+      expect(importmapPos).toBeGreaterThan(-1);
+      expect(firstModulePos).toBeGreaterThan(-1);
+      expect(importmapPos).toBeLessThan(firstModulePos);
+    });
+
     it('should set correct page module path', async () => {
       const response = await server.handleRequest('GET', '/about', {});
       const html = response.body.toString();
@@ -516,6 +529,106 @@ export default function Home() {
       expect(listener).toHaveBeenCalled();
       const update = listener.mock.calls[0][0];
       expect(update.type).toBe('update');
+    });
+  });
+
+  describe('App Router HMR', () => {
+    let appServer: NextDevServer;
+
+    beforeEach(() => {
+      vfs.mkdirSync('/app', { recursive: true });
+      vfs.mkdirSync('/app/about', { recursive: true });
+      vfs.writeFileSync('/app/layout.tsx', `
+        export default function Layout({ children }) {
+          return <html><body>{children}</body></html>;
+        }
+      `);
+      vfs.writeFileSync('/app/page.tsx', `
+        export default function Home() {
+          return <div><h1>Home Page</h1></div>;
+        }
+      `);
+      vfs.writeFileSync('/app/about/page.tsx', `
+        export default function About() {
+          return <div><h1>About Page</h1></div>;
+        }
+      `);
+      appServer = new NextDevServer(vfs, { port: 3001, preferAppRouter: true });
+    });
+
+    afterEach(() => {
+      appServer.stop();
+    });
+
+    it('should emit hmr-update on app file change', async () => {
+      const listener = vi.fn();
+      appServer.on('hmr-update', listener);
+      appServer.start();
+
+      vfs.writeFileSync('/app/page.tsx', `
+        export default function Home() {
+          return <div><h1>Updated Home</h1></div>;
+        }
+      `);
+
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(listener).toHaveBeenCalled();
+      const update = listener.mock.calls[0][0];
+      expect(update.type).toBe('update');
+      expect(update.path).toBe('/app/page.tsx');
+    });
+
+    it('should serve updated content after file change (HMR re-import)', async () => {
+      // Get original response
+      const original = await appServer.handleRequest('GET', '/app/page.tsx', {});
+      expect(original.statusCode).toBe(200);
+      expect(original.body.toString()).toContain('Home Page');
+
+      // Simulate file change
+      vfs.writeFileSync('/app/page.tsx', `
+        export default function Home() {
+          return <div><h1>Updated Home</h1></div>;
+        }
+      `);
+
+      // Re-request with cache buster (like HMR client does)
+      const updated = await appServer.handleRequest('GET', '/app/page.tsx?t=123', {});
+      expect(updated.statusCode).toBe(200);
+      expect(updated.body.toString()).toContain('Updated Home');
+      expect(updated.body.toString()).not.toContain('Home Page');
+    });
+
+    it('should serve direct file requests for HMR re-imports', async () => {
+      // HMR client imports files directly (e.g., /app/page.tsx?t=123)
+      // The server must handle these as transformable files
+      const response = await appServer.handleRequest('GET', '/app/page.tsx', {});
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['Content-Type']).toContain('javascript');
+      expect(response.body.toString()).toContain('Home Page');
+    });
+
+    it('should place importmap before module scripts in HTML', async () => {
+      const response = await appServer.handleRequest('GET', '/', {});
+      const html = response.body.toString();
+
+      // importmap must appear before any <script type="module">
+      const importmapPos = html.indexOf('<script type="importmap">');
+      const firstModulePos = html.indexOf('<script type="module">');
+
+      expect(importmapPos).toBeGreaterThan(-1);
+      expect(firstModulePos).toBeGreaterThan(-1);
+      expect(importmapPos).toBeLessThan(firstModulePos);
+    });
+
+    it('should include HMR client script in App Router HTML', async () => {
+      const response = await appServer.handleRequest('GET', '/', {});
+      const html = response.body.toString();
+
+      expect(html).toContain('next-hmr');
+      expect(html).toContain('__vite_hot_context__');
+      expect(html).toContain('handleJSUpdate');
+      expect(html).toContain('$RefreshRuntime$');
     });
   });
 
@@ -837,6 +950,48 @@ describe('NextDevServer environment variables', () => {
       expect(response.statusCode).toBe(200);
       expect(response.headers['Content-Type']).toBe('application/javascript; charset=utf-8');
       expect(response.body.toString()).toContain('children');
+    });
+
+    it('should serve files with explicit .ts extension via /_next/app/', async () => {
+      // Simulates: import from '../convex/_generated/api.ts'
+      // which resolves to /_next/app/convex/_generated/api.ts
+      vfs.mkdirSync('/convex/_generated', { recursive: true });
+      vfs.writeFileSync('/convex/_generated/api.ts', `export const api = {
+  todos: { list: "todos:list" },
+} as const;
+`);
+
+      server = new NextDevServer(vfs, {
+        port: 3001,
+        preferAppRouter: true,
+      });
+
+      const response = await server.handleRequest('GET', '/_next/app/convex/_generated/api.ts', {});
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['Content-Type']).toBe('application/javascript; charset=utf-8');
+      expect(response.body.toString()).toContain('api');
+      expect(response.body.toString()).toContain('todos');
+    });
+
+    it('should serve files with explicit .tsx extension via /_next/app/', async () => {
+      // Simulates: import from '../components/task-list.tsx'
+      // which resolves to /_next/app/components/task-list.tsx
+      vfs.mkdirSync('/components', { recursive: true });
+      vfs.writeFileSync('/components/task-list.tsx', `import React from 'react';
+export function TaskList() { return <div>Tasks</div>; }
+`);
+
+      server = new NextDevServer(vfs, {
+        port: 3001,
+        preferAppRouter: true,
+      });
+
+      const response = await server.handleRequest('GET', '/_next/app/components/task-list.tsx', {});
+
+      expect(response.statusCode).toBe(200);
+      expect(response.headers['Content-Type']).toBe('application/javascript; charset=utf-8');
+      expect(response.body.toString()).toContain('TaskList');
     });
   });
 });
@@ -1742,10 +1897,10 @@ describe('App Router page props (searchParams and params)', () => {
       expect(response.statusCode).toBe(200);
       const html = response.body.toString();
 
-      // The AsyncComponent should create searchParams as a Promise
-      expect(html).toContain('Promise.resolve(searchParamsObj)');
-      // Should pass searchParams to the component
-      expect(html).toContain('Component({ searchParams, params })');
+      // PageWrapper should create searchParams as a Promise
+      expect(html).toContain('Promise.resolve(Object.fromEntries(url.searchParams))');
+      // Should render component via createElement so hooks work
+      expect(html).toContain('React.createElement(Component, { searchParams, params })');
     });
 
     it('should include search params from URL in the searchParams object', async () => {
@@ -1782,8 +1937,8 @@ describe('App Router page props (searchParams and params)', () => {
 
       // Router should track search state
       expect(html).toContain('const [search, setSearch]');
-      // AsyncComponent should have search in its dependencies
-      expect(html).toContain('[Component, pathname, search]');
+      // PageWrapper should receive search prop to trigger re-render
+      expect(html).toContain('search: search');
     });
   });
 
@@ -1826,8 +1981,8 @@ describe('App Router page props (searchParams and params)', () => {
       expect(response.statusCode).toBe(200);
       const html = response.body.toString();
 
-      // Should pass params to the component
-      expect(html).toContain('Component({ searchParams, params })');
+      // Should render component via createElement with params
+      expect(html).toContain('React.createElement(Component, { searchParams, params })');
       // Params should be a Promise
       expect(html).toContain('Promise.resolve');
     });
@@ -2219,6 +2374,41 @@ export default {
     // /other/images/logo.png should NOT be treated as /images/logo.png
     const response = await server.handleRequest('GET', '/other/images/logo.png', {});
     expect(response.statusCode).toBe(404);
+  });
+
+  it('should auto-detect assetPrefix via variable reference in next.config.ts', async () => {
+    vfs.writeFileSync('/next.config.ts', `
+import type { NextConfig } from "next"
+
+const PREFIX = '/marketing';
+const config: NextConfig = {
+  assetPrefix: PREFIX,
+  reactStrictMode: true,
+}
+
+export default config
+`);
+
+    server = new NextDevServer(vfs, { port: 3001 });
+
+    const response = await server.handleRequest('GET', '/marketing/images/logo.png', {});
+    expect(response.statusCode).toBe(200);
+    expect(response.body.toString()).toBe('fake-png-data');
+  });
+
+  it('should auto-detect assetPrefix with const config export pattern', async () => {
+    vfs.writeFileSync('/next.config.js', `
+const nextConfig = {
+  assetPrefix: "/static",
+};
+module.exports = nextConfig;
+`);
+
+    server = new NextDevServer(vfs, { port: 3001 });
+
+    const response = await server.handleRequest('GET', '/static/images/logo.png', {});
+    expect(response.statusCode).toBe(200);
+    expect(response.body.toString()).toBe('fake-png-data');
   });
 });
 
@@ -2686,6 +2876,22 @@ module.exports = {
     const response = await server.handleRequest('GET', '/docs/image.png', {});
     expect(response.statusCode).toBe(200);
     expect(response.body.toString()).toBe('image-data');
+  });
+
+  it('should auto-detect basePath via variable reference in next.config.js', async () => {
+    vfs.writeFileSync('/next.config.js', `
+const bp = '/docs';
+module.exports = { basePath: bp };
+`);
+
+    vfs.writeFileSync('/app/page.tsx', 'export default function Home() { return <div>Home</div>; }');
+    vfs.writeFileSync('/app/layout.tsx', 'export default function Layout({ children }) { return <div>{children}</div>; }');
+
+    server = new NextDevServer(vfs, { port: 3001, preferAppRouter: true });
+
+    const response = await server.handleRequest('GET', '/docs', {});
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['Content-Type']).toContain('text/html');
   });
 });
 

@@ -59,6 +59,7 @@ export class WebSocket extends EventEmitter {
 
   private _id: string;
   private _server: WebSocketServer | null = null;
+  private _nativeWs: globalThis.WebSocket | null = null;
 
   // Event handler properties
   onopen: ((event: Event) => void) | null = null;
@@ -88,7 +89,15 @@ export class WebSocket extends EventEmitter {
       return;
     }
 
-    // If no BroadcastChannel, act as if connected
+    // For external WebSocket connections, use the browser's native WebSocket.
+    // This allows libraries like the Convex CLI (which require('ws')) to
+    // communicate with real remote servers.
+    if (this.url.startsWith('ws://') || this.url.startsWith('wss://')) {
+      this._connectNative();
+      return;
+    }
+
+    // For all other URLs, use BroadcastChannel (internal Vite HMR)
     if (!messageChannel) {
       setTimeout(() => {
         this.readyState = WebSocket.OPEN;
@@ -158,9 +167,73 @@ export class WebSocket extends EventEmitter {
     }, 100);
   }
 
+  private _connectNative(): void {
+    // Check that the browser's native WebSocket is available and is not our own shim
+    const NativeWS = typeof globalThis.WebSocket === 'function' && globalThis.WebSocket !== (WebSocket as any)
+      ? globalThis.WebSocket
+      : null;
+
+    if (!NativeWS) {
+      // No native WebSocket (test env, Node.js, etc.) — act as if connected
+      setTimeout(() => {
+        this.readyState = WebSocket.OPEN;
+        this.emit('open');
+        if (this.onopen) this.onopen(new Event('open'));
+      }, 0);
+      return;
+    }
+
+    try {
+      this._nativeWs = new NativeWS(this.url);
+      this._nativeWs.binaryType = this.binaryType === 'arraybuffer' ? 'arraybuffer' : 'blob';
+    } catch {
+      this.readyState = WebSocket.CLOSED;
+      const errorEvent = new Event('error');
+      this.emit('error', errorEvent);
+      if (this.onerror) this.onerror(errorEvent);
+      return;
+    }
+
+    this._nativeWs.onopen = () => {
+      this.readyState = WebSocket.OPEN;
+      this.emit('open');
+      if (this.onopen) this.onopen(new Event('open'));
+    };
+
+    this._nativeWs.onmessage = (event: globalThis.MessageEvent) => {
+      const msgEvent = new MessageEventPolyfill('message', { data: event.data });
+      this.emit('message', msgEvent);
+      if (this.onmessage) this.onmessage(msgEvent as unknown as MessageEvent);
+    };
+
+    this._nativeWs.onclose = (event: globalThis.CloseEvent) => {
+      this.readyState = WebSocket.CLOSED;
+      this._nativeWs = null;
+      const closeEvent = new CloseEventPolyfill('close', {
+        code: event.code,
+        reason: event.reason,
+        wasClean: event.wasClean,
+      });
+      this.emit('close', closeEvent);
+      if (this.onclose) this.onclose(closeEvent as unknown as CloseEvent);
+    };
+
+    this._nativeWs.onerror = () => {
+      const errorEvent = new Event('error');
+      this.emit('error', errorEvent);
+      if (this.onerror) this.onerror(errorEvent);
+    };
+  }
+
   send(data: string | ArrayBuffer | Uint8Array): void {
     if (this.readyState !== WebSocket.OPEN) {
       throw new Error('WebSocket is not open');
+    }
+
+    // If connected to native WebSocket (external server)
+    if (this._nativeWs) {
+      this._nativeWs.send(data);
+      return;
     }
 
     // If connected to internal server
@@ -186,6 +259,12 @@ export class WebSocket extends EventEmitter {
     }
 
     this.readyState = WebSocket.CLOSING;
+
+    // If connected to native WebSocket, close it (onclose handler emits events)
+    if (this._nativeWs) {
+      this._nativeWs.close(code, reason);
+      return;
+    }
 
     if (messageChannel) {
       messageChannel.postMessage({
@@ -218,7 +297,18 @@ export class WebSocket extends EventEmitter {
   }
 
   terminate(): void {
-    this.close(1006, 'Connection terminated');
+    if (this._nativeWs) {
+      this._nativeWs.close();
+      this._nativeWs = null;
+    }
+    this.readyState = WebSocket.CLOSED;
+    const closeEvent = new CloseEventPolyfill('close', {
+      code: 1006,
+      reason: 'Connection terminated',
+      wasClean: false,
+    });
+    this.emit('close', closeEvent);
+    if (this.onclose) this.onclose(closeEvent as unknown as CloseEvent);
   }
 
   // For internal server use

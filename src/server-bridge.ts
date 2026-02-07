@@ -12,6 +12,9 @@ import {
 } from './shims/http';
 import { EventEmitter } from './shims/events';
 import { Buffer } from './shims/stream';
+import { uint8ToBase64 } from './utils/binary-encoding';
+
+const _encoder = new TextEncoder();
 
 /**
  * Interface for virtual servers that can be registered with the bridge
@@ -50,11 +53,13 @@ export interface InitServiceWorkerOptions {
  * Server Bridge manages virtual HTTP servers and routes requests
  */
 export class ServerBridge extends EventEmitter {
+  static DEBUG = false;
   private servers: Map<number, VirtualServer> = new Map();
   private baseUrl: string;
   private options: BridgeOptions;
   private messageChannel: MessageChannel | null = null;
   private serviceWorkerReady: boolean = false;
+  private keepaliveInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(options: BridgeOptions = {}) {
     super();
@@ -164,6 +169,15 @@ export class ServerBridge extends EventEmitter {
 
     const swUrl = options?.swUrl ?? '/__sw__.js';
 
+    // Set up controllerchange listener BEFORE registration so we don't miss the event.
+    // clients.claim() in the SW's activate handler fires controllerchange, and it can
+    // happen before our activation wait completes.
+    const controllerReady = navigator.serviceWorker.controller
+      ? Promise.resolve()
+      : new Promise<void>((resolve) => {
+          navigator.serviceWorker.addEventListener('controllerchange', () => resolve(), { once: true });
+        });
+
     // Register service worker
     const registration = await navigator.serviceWorker.register(swUrl, {
       scope: '/',
@@ -180,11 +194,13 @@ export class ServerBridge extends EventEmitter {
       if (sw.state === 'activated') {
         resolve();
       } else {
-        sw.addEventListener('statechange', () => {
+        const handler = () => {
           if (sw.state === 'activated') {
+            sw.removeEventListener('statechange', handler);
             resolve();
           }
-        });
+        };
+        sw.addEventListener('statechange', handler);
       }
     });
 
@@ -197,6 +213,36 @@ export class ServerBridge extends EventEmitter {
       this.messageChannel.port2,
     ]);
 
+    // Wait for SW to actually control this page (clients.claim() in SW activate handler)
+    // Without this, fetch requests bypass the SW and go directly to the server
+    await controllerReady;
+
+    // Re-establish communication when the SW loses its port (idle termination)
+    // or when the SW is replaced (new deployment). The SW sends 'sw-needs-init'
+    // to all clients when a request arrives but mainPort is null.
+    const reinit = () => {
+      if (navigator.serviceWorker.controller) {
+        this.messageChannel = new MessageChannel();
+        this.messageChannel.port1.onmessage = this.handleServiceWorkerMessage.bind(this);
+        navigator.serviceWorker.controller.postMessage(
+          { type: 'init', port: this.messageChannel.port2 },
+          [this.messageChannel.port2]
+        );
+      }
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', reinit);
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if (event.data?.type === 'sw-needs-init') {
+        reinit();
+      }
+    });
+
+    // Keep the SW alive with periodic pings. Browsers terminate idle SWs
+    // after ~30s, losing the MessageChannel port and all in-memory state.
+    this.keepaliveInterval = setInterval(() => {
+      this.messageChannel?.port1.postMessage({ type: 'keepalive' });
+    }, 20_000);
+
     this.serviceWorkerReady = true;
     this.emit('sw-ready');
   }
@@ -207,14 +253,14 @@ export class ServerBridge extends EventEmitter {
   private async handleServiceWorkerMessage(event: MessageEvent): Promise<void> {
     const { type, id, data } = event.data;
 
-    console.log('[ServerBridge] SW message:', type, id, data?.url);
+    ServerBridge.DEBUG && console.log('[ServerBridge] SW message:', type, id, data?.url);
 
     if (type === 'request') {
       const { port, method, url, headers, body, streaming } = data;
 
-      console.log('[ServerBridge] Handling request:', port, method, url, 'streaming:', streaming);
+      ServerBridge.DEBUG && console.log('[ServerBridge] Handling request:', port, method, url, 'streaming:', streaming);
       if (streaming) {
-        console.log('[ServerBridge] 🔴 Will use streaming handler');
+        ServerBridge.DEBUG && console.log('[ServerBridge] 🔴 Will use streaming handler');
       }
 
       try {
@@ -224,21 +270,16 @@ export class ServerBridge extends EventEmitter {
         } else {
           // Handle regular request
           const response = await this.handleRequest(port, method, url, headers, body);
-          console.log('[ServerBridge] Response:', response.statusCode, 'body length:', response.body?.length);
+          ServerBridge.DEBUG && console.log('[ServerBridge] Response:', response.statusCode, 'body length:', response.body?.length);
 
           // Convert body to base64 string to avoid structured cloning issues with Uint8Array
           let bodyBase64 = '';
           if (response.body && response.body.length > 0) {
-            // Convert Uint8Array to base64 string
             const bytes = response.body instanceof Uint8Array ? response.body : new Uint8Array(0);
-            let binary = '';
-            for (let i = 0; i < bytes.length; i++) {
-              binary += String.fromCharCode(bytes[i]);
-            }
-            bodyBase64 = btoa(binary);
+            bodyBase64 = uint8ToBase64(bytes);
           }
 
-          console.log('[ServerBridge] Sending response to SW, body base64 length:', bodyBase64.length);
+          ServerBridge.DEBUG && console.log('[ServerBridge] Sending response to SW, body base64 length:', bodyBase64.length);
 
           this.messageChannel?.port1.postMessage({
             type: 'response',
@@ -287,7 +328,7 @@ export class ServerBridge extends EventEmitter {
     // Check if the server supports streaming (has handleStreamingRequest method)
     const server = virtualServer.server as any;
     if (typeof server.handleStreamingRequest === 'function') {
-      console.log('[ServerBridge] 🟢 Server has streaming support, calling handleStreamingRequest');
+      ServerBridge.DEBUG && console.log('[ServerBridge] 🟢 Server has streaming support, calling handleStreamingRequest');
       // Use streaming handler
       const bodyBuffer = body ? Buffer.from(new Uint8Array(body)) : undefined;
 
@@ -298,7 +339,7 @@ export class ServerBridge extends EventEmitter {
         bodyBuffer,
         // onStart - called with headers
         (statusCode: number, statusMessage: string, respHeaders: Record<string, string>) => {
-          console.log('[ServerBridge] 🟢 onStart called, sending stream-start');
+          ServerBridge.DEBUG && console.log('[ServerBridge] 🟢 onStart called, sending stream-start');
           this.messageChannel?.port1.postMessage({
             type: 'stream-start',
             id,
@@ -307,13 +348,9 @@ export class ServerBridge extends EventEmitter {
         },
         // onChunk - called for each chunk
         (chunk: string | Uint8Array) => {
-          const bytes = typeof chunk === 'string' ? new TextEncoder().encode(chunk) : chunk;
-          let binary = '';
-          for (let i = 0; i < bytes.length; i++) {
-            binary += String.fromCharCode(bytes[i]);
-          }
-          const chunkBase64 = btoa(binary);
-          console.log('[ServerBridge] 🟡 onChunk called, sending stream-chunk, size:', chunkBase64.length);
+          const bytes = typeof chunk === 'string' ? _encoder.encode(chunk) : chunk;
+          const chunkBase64 = uint8ToBase64(bytes);
+          ServerBridge.DEBUG && console.log('[ServerBridge] 🟡 onChunk called, sending stream-chunk, size:', chunkBase64.length);
           this.messageChannel?.port1.postMessage({
             type: 'stream-chunk',
             id,
@@ -322,7 +359,7 @@ export class ServerBridge extends EventEmitter {
         },
         // onEnd - called when response is complete
         () => {
-          console.log('[ServerBridge] 🟢 onEnd called, sending stream-end');
+          ServerBridge.DEBUG && console.log('[ServerBridge] 🟢 onEnd called, sending stream-end');
           this.messageChannel?.port1.postMessage({ type: 'stream-end', id });
         }
       );
@@ -344,14 +381,10 @@ export class ServerBridge extends EventEmitter {
 
       if (response.body && response.body.length > 0) {
         const bytes = response.body instanceof Uint8Array ? response.body : new Uint8Array(0);
-        let binary = '';
-        for (let i = 0; i < bytes.length; i++) {
-          binary += String.fromCharCode(bytes[i]);
-        }
         this.messageChannel?.port1.postMessage({
           type: 'stream-chunk',
           id,
-          data: { chunkBase64: btoa(binary) },
+          data: { chunkBase64: uint8ToBase64(bytes) },
         });
       }
 

@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.8] - 2026-02-07
+
+### Added
+
+- **Convex CLI deployment:** Full in-browser Convex deployment via the CLI bundle with 4 runtime patches (Sentry stub, crash capture, size check skip, site URL derivation)
+- **Next.js dev server refactoring:** Extracted ~1700 lines into standalone modules:
+  - `next-shims.ts` — shim string constants (~1050 lines)
+  - `next-html-generator.ts` — HTML template generation (~600 lines)
+  - `next-config-parser.ts` — AST-based config parsing with regex fallback (~140 lines)
+  - `binary-encoding.ts` — base64/uint8 encoding utilities
+- **HTTP shim improvements:** `IncomingMessage` now supports readable stream interface (`on('data')`, `on('end')`), chunked transfer encoding, proper content-length tracking
+- **WebSocket shim:** Real WebSocket connectivity for Convex real-time sync (connect to `wss://` endpoints, binary frame support, ping/pong handling)
+- **Stream shim:** Added `PassThrough` stream implementation
+- **Crypto shim:** Added `timingSafeEqual` implementation
+- **Convex E2E tests:** 6 Playwright tests including HTTP API verification that proves modified mutations deploy and run on the Convex backend
+
+### Fixed
+
+- **`path.resolve()` must use `process.cwd()`:** Was prepending `/` for relative paths instead of the actual working directory — caused Convex CLI to resolve `'convex'` → `/convex` instead of `/project/convex`
+- **esbuild `absWorkingDir` must use `process.cwd()`:** Was defaulting to `/`, causing metafile paths to be relative to root instead of the project directory, resulting in doubled paths like `/project/project/...`
+- **Convex `_generated` directory:** No longer deletes `/convex/_generated/` during deployment — the live Next.js app imports from it while the CLI only needs `/project/convex/_generated/`
+- **`path.join()` debug logging removed:** Cleaned up leftover `console.log` calls for `_generated` path joins
+
 ## [0.2.7] - 2026-02-05
 
 ### Added

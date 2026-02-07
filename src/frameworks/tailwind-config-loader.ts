@@ -109,7 +109,7 @@ export function stripTypescriptSyntax(content: string): string {
 
   // Remove type annotations on variables
   // e.g., const config: Config = { ... }
-  result = result.replace(/:\s*Config\s*=/g, ' =');
+  result = result.replace(/:\s*[A-Z]\w*\s*=/g, ' =');
 
   // Remove 'as const' assertions
   result = result.replace(/\s+as\s+const\s*/g, ' ');

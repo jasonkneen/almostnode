@@ -185,11 +185,11 @@ export const pathTests = {
   ] as Array<[string[], string]>,
 
   // Test cases for resolve()
+  // Note: tests with relative paths (like resolve('.') or resolve('a/b/c/')) are
+  // handled separately in the test file since they depend on process.cwd()
   resolveTests: [
     [['/var/lib', '../', 'file/'], '/var/file'],
     [['/var/lib', '/../', 'file/'], '/file'],
-    [['a/b/c/', '../../..'], '/'],
-    [['.'], '/'],
     [['/some/dir', '.', '/absolute/'], '/absolute'],
     [['/foo/tmp.3/', '../tmp.3/cycles/root.js'], '/foo/tmp.3/cycles/root.js'],
   ] as Array<[string[], string]>,

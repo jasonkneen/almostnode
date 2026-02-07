@@ -9,6 +9,7 @@ import { VirtualFS } from './virtual-fs';
 import type { IRuntime, IExecuteResult, IRuntimeOptions } from './runtime-interface';
 import type { PackageJson } from './types/package-json';
 import { simpleHash } from './utils/hash';
+import { uint8ToBase64, uint8ToHex } from './utils/binary-encoding';
 import { createFsShim, FsShim } from './shims/fs';
 import * as pathShim from './shims/path';
 import { createProcess, Process } from './shims/process';
@@ -548,6 +549,12 @@ function createRequire(
     // Cache before loading to handle circular dependencies
     moduleCache[resolvedPath] = module;
 
+    // Evict oldest entry if cache exceeds bounds
+    const cacheKeys = Object.keys(moduleCache);
+    if (cacheKeys.length > 2000) {
+      delete moduleCache[cacheKeys[0]];
+    }
+
     // Handle JSON files
     if (resolvedPath.endsWith('.json')) {
       const content = vfs.readFileSync(resolvedPath, 'utf8');
@@ -907,27 +914,15 @@ export class Runtime {
           : new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
 
         if (this.encoding === 'base64') {
-          let binary = '';
-          for (let i = 0; i < bytes.length; i++) {
-            binary += String.fromCharCode(bytes[i]);
-          }
-          return btoa(binary);
+          return uint8ToBase64(bytes);
         }
 
         if (this.encoding === 'base64url') {
-          let binary = '';
-          for (let i = 0; i < bytes.length; i++) {
-            binary += String.fromCharCode(bytes[i]);
-          }
-          return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+          return uint8ToBase64(bytes).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
         }
 
         if (this.encoding === 'hex') {
-          let hex = '';
-          for (let i = 0; i < bytes.length; i++) {
-            hex += bytes[i].toString(16).padStart(2, '0');
-          }
-          return hex;
+          return uint8ToHex(bytes);
         }
 
         // Fallback: decode as utf-8

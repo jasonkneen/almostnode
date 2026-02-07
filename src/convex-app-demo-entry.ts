@@ -516,8 +516,11 @@ async function deployToConvex(adminKey: string): Promise<void> {
   vfs.writeFileSync('/package.json', packageJson);
 
   // Create convex.json in /project
+  // codegen.fileType: "ts" ensures codegen creates .ts files that esbuild can resolve
+  // (default is "js/dts" which creates .js + .d.ts, but our source imports expect .ts)
   vfs.writeFileSync('/project/convex.json', JSON.stringify({
-    functions: "convex/"
+    functions: "convex/",
+    codegen: { fileType: "ts" }
   }, null, 2));
 
   // Clean up /project/convex/ completely to ensure fresh state
@@ -550,19 +553,12 @@ async function deployToConvex(adminKey: string): Promise<void> {
   }
   vfs.mkdirSync('/project/convex', { recursive: true });
 
-  // Also clean /convex/_generated to ensure fresh generation
-  if (vfs.existsSync('/convex/_generated')) {
-    log('Cleaning /convex/_generated directory...');
-    try {
-      const files = vfs.readdirSync('/convex/_generated');
-      for (const file of files) {
-        vfs.unlinkSync(`/convex/_generated/${file}`);
-      }
-      vfs.rmdirSync('/convex/_generated');
-    } catch (e) {
-      log(`Warning: Could not remove /convex/_generated: ${e}`, 'warn');
-    }
+  // Remove /project/.env.local before CLI runs so we can detect when the new deployment creates it.
+  if (vfs.existsSync('/project/.env.local')) {
+    vfs.unlinkSync('/project/.env.local');
   }
+  // NOTE: Do NOT delete /project/convex/_generated/ — esbuild needs those files to resolve
+  // imports like `from "./_generated/server"` in user code. The CLI's codegen will update them.
 
   // Create convex config files (BOTH .ts and .js required!)
   const convexConfig = `import { defineApp } from "convex/server";
@@ -580,14 +576,17 @@ export default app;
     for (const file of convexFiles) {
       const srcPath = `/convex/${file}`;
       const destPath = `/project/convex/${file}`;
-      // Skip _generated directory and only copy files (not directories)
-      if (file === '_generated') continue;
       try {
         const stat = vfs.statSync(srcPath);
         if (stat.isFile()) {
           const content = vfs.readFileSync(srcPath, 'utf8');
           vfs.writeFileSync(destPath, content);
-          log(`  Copied ${file}`);
+          log(`  Copied ${file} (${content.length}b)`);
+          // For todos.ts, show the mutation handler to verify modifications
+          if (file === 'todos.ts') {
+            const handlerMatch = content.match(/title:\s*args\.title[^\n]*/);
+            log(`  → todos.ts mutation: ${handlerMatch ? handlerMatch[0] : 'handler not found'}`);
+          }
         }
       } catch (e) {
         log(`  Warning: Could not copy ${srcPath}: ${e}`, 'warn');
@@ -635,11 +634,14 @@ export default app;
   ];
   for (const file of requiredFiles) {
     if (vfs.existsSync(file)) {
-      // For convex source files, show content preview to verify it's fresh
       if (file.includes('/project/convex/') && (file.endsWith('.ts') || file.endsWith('.js'))) {
         const content = vfs.readFileSync(file, 'utf8');
-        const preview = content.substring(0, 60).replace(/\n/g, '\\n');
-        log(`  ✓ ${file} (${content.length}b): "${preview}..."`, 'success');
+        log(`  ✓ ${file} (${content.length}b)`, 'success');
+        // For todos.ts, verify the mutation content the CLI will push
+        if (file.endsWith('todos.ts')) {
+          const titleLine = content.match(/title:\s*args\.title[^\n]*/);
+          log(`    → CLI will push: ${titleLine ? titleLine[0].trim() : 'title line not found'}`, 'info');
+        }
       } else {
         log(`  ✓ ${file}`, 'success');
       }
@@ -648,7 +650,159 @@ export default app;
     }
   }
 
-  // Match working example exactly
+  // Patch CLI bundle: stub fetchDeploymentCanonicalSiteUrl
+  // This function was added in convex v1.31.7 and calls envGetInDeployment() to fetch CONVEX_SITE_URL
+  // from the deployment. The envGetInDeployment call hangs in our browser runtime because it uses
+  // a deployment API endpoint we can't handle. We derive the site URL from the deployment URL instead.
+  {
+    const cliBundlePath = '/project/node_modules/convex/dist/cli.bundle.cjs';
+    let cliSrc = vfs.readFileSync(cliBundlePath, 'utf8');
+
+    const fetchCanonSearch = [
+      'async function fetchDeploymentCanonicalSiteUrl(ctx, options) {',
+      '  const result = await envGetInDeployment(ctx, options, "CONVEX_SITE_URL");',
+      '  if (typeof result !== "string") {',
+      '    return await ctx.crash({',
+      '      exitCode: 1,',
+      '      errorType: "invalid filesystem or env vars",',
+      '      printedMessage: "Invalid process.env.CONVEX_SITE_URL"',
+      '    });',
+      '  }',
+      '  return result;',
+      '}',
+    ].join('\n');
+    const fetchCanonReplace = [
+      'async function fetchDeploymentCanonicalSiteUrl(ctx, options) {',
+      '  // Stubbed: derive site URL from deployment URL (.convex.cloud -> .convex.site)',
+      '  var siteUrl = (options?.deploymentUrl || "").replace(".convex.cloud", ".convex.site");',
+      '  return siteUrl || "https://placeholder.convex.site";',
+      '}',
+    ].join('\n');
+
+    let patched = cliSrc.replace(fetchCanonSearch, fetchCanonReplace);
+    const patch1Applied = patched !== cliSrc;
+    log(`  Patch 1 (fetchDeploymentCanonicalSiteUrl): ${patch1Applied ? 'APPLIED' : 'already patched or not found'}`);
+
+    // Patch 2: Stub Sentry5.close() in flushAndExit so process.exit() actually fires.
+    // Without this patch, Sentry5.close() hangs forever and process.exit() is never called,
+    // making it impossible to detect when the CLI has finished pushing functions.
+    const flushAndExitSearch = [
+      'async function flushAndExit(exitCode, err) {',
+      '  if (err) {',
+      '    Sentry5.captureException(err);',
+      '  }',
+      '  await Sentry5.close();',
+      '  return process.exit(exitCode);',
+      '}',
+    ].join('\n');
+    const flushAndExitReplace = [
+      'async function flushAndExit(exitCode, err) {',
+      '  // Patched: skip Sentry5.close() which hangs in browser runtime',
+      '  var callerStack = new Error("flushAndExit-trace").stack || "";',
+      '  globalThis.__cliExitInfo = { code: exitCode, msg: err ? (err.message || String(err)) : null, stack: err ? (err.stack || "").substring(0, 2000) : null, callerStack: callerStack.substring(0, 3000) };',
+      '  return process.exit(exitCode);',
+      '}',
+    ].join('\n');
+
+    const beforePatch2 = patched;
+    patched = patched.replace(flushAndExitSearch, flushAndExitReplace);
+    let patch2Applied = patched !== beforePatch2;
+
+    // Also handle re-patching: if already patched with an older version
+    if (!patch2Applied) {
+      const oldPatchMarker = '// Patched: skip Sentry5.close()';
+      const markerIdx = patched.indexOf(oldPatchMarker);
+      if (markerIdx > -1) {
+        // Find the function boundaries around our marker
+        const funcStart = patched.lastIndexOf('async function flushAndExit(exitCode, err) {', markerIdx);
+        const funcEnd = patched.indexOf('\n}', markerIdx);
+        if (funcStart > -1 && funcEnd > -1) {
+          const oldFunc = patched.substring(funcStart, funcEnd + 2);
+          if (oldFunc !== flushAndExitReplace) {
+            patched = patched.replace(oldFunc, flushAndExitReplace);
+            patch2Applied = patched !== beforePatch2;
+            if (patch2Applied) log('  Patch 2: re-patched (upgraded old patch)');
+          }
+        }
+      }
+    }
+
+    log(`  Patch 2 (flushAndExit/Sentry5): ${patch2Applied ? 'APPLIED' : 'already up-to-date'}`);
+
+    // Patch 3: Capture Crash error details in watchAndPush catch block before flushAndExit
+    // The Crash object is thrown by runPush() and caught in watchAndPush. It has errorType,
+    // printedMessage, message, and stack. We save these to __cliCrashInfo before exiting.
+    const watchPushSearch = '      if (cmdOptions.once) {\n        await outerCtx.flushAndExit(1, e.errorType);\n      }';
+    const watchPushReplace = '      if (cmdOptions.once) {\n        globalThis.__cliCrashInfo = { errorType: e.errorType, printedMessage: e.printedMessage || null, message: e.message || null, stack: (e.stack || "").substring(0, 2000) };\n        await outerCtx.flushAndExit(1, e.errorType);\n      }';
+    const beforePatch3 = patched;
+    patched = patched.replace(watchPushSearch, watchPushReplace);
+    const patch3Applied = patched !== beforePatch3;
+    log(`  Patch 3 (watchAndPush crash details): ${patch3Applied ? 'APPLIED' : 'already patched or not found'}`);
+
+    // Patch 4: Skip post-esbuild file size mismatch check in doEsbuild
+    // The CLI checks that each bundled file's size hasn't changed after esbuild runs.
+    // In our browser VFS, stat().size may differ from esbuild's metafile byte count
+    // (e.g., UTF-8 encoding differences), causing a false "transient" crash.
+    // We skip the size comparison since VFS files can't change from external sources.
+    const sizeCheckSearch = '      if (st.size !== input.bytes) {\n        logWarning(\n          `Bundled file ${absPath} changed right after esbuild invocation`\n        );\n        return await ctx.crash({\n          exitCode: 1,\n          errorType: "transient",\n          printedMessage: null\n        });\n      }';
+    const sizeCheckReplace = '      // Patched: skip file size check (VFS stat size may differ from esbuild byte count)';
+    const beforePatch4 = patched;
+    patched = patched.replace(sizeCheckSearch, sizeCheckReplace);
+    const patch4Applied = patched !== beforePatch4;
+    log(`  Patch 4 (skip file size check): ${patch4Applied ? 'APPLIED' : 'already patched or not found'}`);
+
+
+    if (patched !== cliSrc) {
+      vfs.writeFileSync(cliBundlePath, patched);
+      log('CLI bundle patched and saved');
+    } else {
+      log('CLI bundle already patched (no changes needed)');
+    }
+  }
+
+  // Set up process.exit listener BEFORE running CLI.
+  // The CLI calls flushAndExit → process.exit(0) when deployment completes.
+  // This is the most reliable completion signal since it fires AFTER the push POST finishes.
+  const cliExitPromise = new Promise<number>((resolve) => {
+    const proc = cliRuntime!.getProcess();
+    proc.on('exit', (code: number) => {
+      log(`CLI process exited with code ${code}`);
+      const crashInfo = (globalThis as any).__cliCrashInfo;
+      if (crashInfo) {
+        log(`CLI CRASH: [${crashInfo.errorType}] msg=${crashInfo.printedMessage || crashInfo.message || '(no message)'}`, 'error');
+        if (crashInfo.stack) log(`CLI CRASH STACK: ${crashInfo.stack.substring(0, 500)}`, 'error');
+      }
+      const exitInfo = (globalThis as any).__cliExitInfo;
+      if (exitInfo) {
+        log(`CLI exit: code=${exitInfo.code} err=${exitInfo.msg || 'none'}`, exitInfo.code === 0 ? 'success' : 'error');
+      }
+      resolve(code);
+    });
+  });
+
+  // Intercept fetch to log Convex API push calls
+  const origFetch = globalThis.fetch;
+  globalThis.fetch = async function(input: RequestInfo | URL, init?: RequestInit) {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.includes('convex.cloud') || url.includes('convex.site')) {
+      const method = init?.method || 'GET';
+      log(`[fetch] ${method} ${url.substring(0, 120)}`);
+      try {
+        const resp = await origFetch.call(globalThis, input, init);
+        log(`[fetch] ${method} ${url.substring(0, 80)} → ${resp.status} ${resp.statusText}`);
+        if (!resp.ok) {
+          const text = await resp.clone().text();
+          log(`[fetch] ERROR body: ${text.substring(0, 500)}`, 'error');
+        }
+        return resp;
+      } catch (e) {
+        log(`[fetch] ${method} ${url.substring(0, 80)} → NETWORK ERROR: ${(e as Error).message}`, 'error');
+        throw e;
+      }
+    }
+    return origFetch.call(globalThis, input, init);
+  } as typeof fetch;
+
   const cliCode = `
     // Set environment for Convex CLI
     process.env.CONVEX_DEPLOY_KEY = '${adminKey}';
@@ -656,35 +810,51 @@ export default app;
     // Set CLI arguments
     process.argv = ['node', 'convex', 'dev', '--once'];
 
-    // Run the CLI
+    // Load and execute the CLI bundle
     require('./node_modules/convex/dist/cli.bundle.cjs');
   `;
 
+  // Capture unhandled rejections from CLI async code (void main())
+  const rejectionHandler = (event: PromiseRejectionEvent) => {
+    const err = event.reason;
+    const msg = err?.message || String(err);
+    if (!msg.includes('Process exited with code')) {
+      log(`[CLI ASYNC ERROR] ${msg}`, 'error');
+      if (err?.stack) log(`[CLI ASYNC STACK] ${err.stack.substring(0, 500)}`, 'error');
+    }
+  };
+  globalThis.addEventListener('unhandledrejection', rejectionHandler);
+
   try {
     cliRuntime.execute(cliCode, '/project/cli-runner.js');
+    log('CLI synchronous execution completed (async work continues in background)');
   } catch (cliError) {
     // Some errors are expected (like process.exit or stack overflow in watcher)
     // The important work (deployment) happens before these errors
     log(`CLI completed with: ${(cliError as Error).message}`, 'warn');
   }
 
-  // Wait for async operations to complete using smart polling
-  // Poll for .env.local creation instead of fixed timeout
+  // Wait for CLI to finish: either process.exit fires (reliable) or fall back to polling
   logStatus('WAITING', 'Waiting for deployment to complete...');
-  const deploymentSucceeded = await waitForDeployment(vfs, 30000, 500);
 
-  if (!deploymentSucceeded) {
-    log('Deployment may still be in progress, waiting additional time...', 'warn');
-    await new Promise(resolve => setTimeout(resolve, 5000));
-  } else {
-    // .env.local was found, now wait for _generated directory
-    // The CLI creates .env.local first, then bundles functions asynchronously
-    log('Environment configured, waiting for function bundling...');
-    const generatedCreated = await waitForGenerated(vfs, 15000, 500);
-    if (!generatedCreated) {
-      log('_generated directory not created yet, waiting additional time...', 'warn');
-      await new Promise(resolve => setTimeout(resolve, 5000));
+  const timeoutPromise = new Promise<'timeout'>((resolve) =>
+    setTimeout(() => resolve('timeout'), 90000)
+  );
+
+  const result = await Promise.race([cliExitPromise, timeoutPromise]);
+
+  // Restore original fetch and remove rejection handler
+  globalThis.fetch = origFetch;
+  globalThis.removeEventListener('unhandledrejection', rejectionHandler);
+
+  if (result === 'timeout') {
+    log('CLI did not exit within 90s, falling back to file polling...', 'warn');
+    const envCreated = await waitForDeployment(vfs, 15000, 500);
+    if (envCreated) {
+      await waitForGenerated(vfs, 15000, 500);
     }
+  } else {
+    log(`CLI exited with code ${result}, deployment complete`);
   }
 
   // Check if deployment succeeded by reading .env.local (CLI creates it in /project)
@@ -732,6 +902,29 @@ export default app;
       log('  WARNING: _generated directory not created - functions may not be deployed!', 'error');
     }
 
+    // Ensure /convex/_generated/api.ts always exists (fallback if CLI didn't generate it)
+    if (!vfs.existsSync('/convex/_generated/api.ts')) {
+      log('  Restoring fallback api.ts (CLI did not generate one)');
+      vfs.mkdirSync('/convex/_generated', { recursive: true });
+      vfs.writeFileSync('/convex/_generated/api.ts', `// Convex API - fallback for browser demo
+export const api = {
+  todos: {
+    list: "todos:list",
+    create: "todos:create",
+    toggle: "todos:toggle",
+    remove: "todos:remove",
+  },
+} as const;
+`);
+    }
+    if (!vfs.existsSync('/convex/_generated/server.ts')) {
+      vfs.mkdirSync('/convex/_generated', { recursive: true });
+      vfs.writeFileSync('/convex/_generated/server.ts', `// Server stubs for browser demo
+export function query(config) { return config; }
+export function mutation(config) { return config; }
+`);
+    }
+
     // Parse the Convex URL from .env.local
     const match = envContent.match(/CONVEX_URL=(.+)/);
     if (match) {
@@ -756,6 +949,7 @@ export default app;
       convexUrl = parsed.url;
       log(`Using fallback URL: ${convexUrl}`, 'warn');
     }
+    logStatus('COMPLETE', `Connected to ${convexUrl} (fallback)`);
   }
 
   // Set the env var on the dev server (idiomatic Next.js pattern)

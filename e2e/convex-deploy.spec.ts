@@ -103,14 +103,14 @@ test.describe('Convex Deployment', () => {
       console.log('✓ Functions were deployed - _generated files exist');
 
       // Verify specific generated files
-      expect(logsText).toContain('api.js');
-      console.log('✓ api.js generated');
+      expect(logsText).toContain('api.ts');
+      console.log('✓ api.ts generated');
     }
 
     // Check that the button shows success and is re-enabled for re-deployment
-    await expect(page.locator('#deployBtn')).toContainText('Connected', { timeout: 15000 });
+    await expect(page.locator('#deployBtn')).toContainText('Re-deploy', { timeout: 15000 });
     await expect(page.locator('#deployBtn')).not.toBeDisabled({ timeout: 5000 });
-    console.log('✓ Deploy button shows Connected and is re-enabled');
+    console.log('✓ Deploy button shows Re-deploy and is re-enabled');
 
     // Wait a bit and check if the app connects to Convex
     await page.waitForTimeout(5000);
@@ -199,7 +199,7 @@ test.describe('Convex Deployment', () => {
 
     // Button should be re-enabled after successful deployment
     await expect(page.locator('#deployBtn')).not.toBeDisabled({ timeout: 5000 });
-    await expect(page.locator('#deployBtn')).toContainText('Connected', { timeout: 5000 });
+    await expect(page.locator('#deployBtn')).toContainText('Re-deploy', { timeout: 5000 });
     console.log('✓ Deploy button is re-enabled');
 
     // Second deployment (re-deploy)
@@ -335,5 +335,143 @@ test.describe('Convex Deployment', () => {
     }
 
     console.log('\n=== Re-deployment File Changes Test Complete ===');
+  });
+
+  test('deployment serves modified mutation via HTTP API', async ({ page, request }) => {
+    const deployKey = process.env.CONVEX_DEPLOY_KEY;
+
+    if (!deployKey) {
+      test.skip();
+      return;
+    }
+
+    // Parse deploy key to get deployment URL
+    const keyMatch = deployKey.match(/^(dev|prod):([^|]+)\|(.+)$/);
+    expect(keyMatch).toBeTruthy();
+    const deploymentName = keyMatch![2];
+    const convexApiBase = `https://${deploymentName}.convex.cloud`;
+
+    // 1. Navigate and wait for app to initialize
+    await page.goto('/examples/demo-convex-app.html');
+    await expect(page.locator('#statusText')).toContainText('Running', { timeout: 60000 });
+    console.log('✓ Demo initialized');
+
+    // 2. Initial deployment (baseline)
+    await page.fill('#convexKey', deployKey);
+    await page.click('#deployBtn');
+    await expect(page.locator('#logs')).toContainText('[STATUS:COMPLETE]', { timeout: 120000 });
+    console.log('✓ Initial deployment complete');
+
+    // 3. Modify the create mutation to append " hello there" to titles
+    await page.evaluate(() => {
+      const vfs = (window as any).__vfs__;
+      const content = vfs.readFileSync('/convex/todos.ts', 'utf8');
+      const modified = content.replace(
+        'title: args.title,',
+        'title: args.title + " hello there",'
+      );
+      vfs.writeFileSync('/convex/todos.ts', modified);
+      console.log('Modified /convex/todos.ts: create mutation now appends " hello there"');
+    });
+    console.log('✓ Modified create mutation');
+
+    // 4. Re-deploy with the modification
+    await page.click('#deployBtn');
+    const logs = page.locator('#logs');
+    await expect(async () => {
+      const logsText = await logs.textContent();
+      const completeCount = (logsText?.match(/\[STATUS:COMPLETE\]/g) || []).length;
+      expect(completeCount).toBeGreaterThanOrEqual(2);
+    }).toPass({ timeout: 120000 });
+    console.log('✓ Re-deployment complete');
+
+    // Wait for functions to be live on the backend
+    await page.waitForTimeout(3000);
+
+    // 5. Call the Convex HTTP API to create a test todo
+    const testTitle = `e2e-test-${Date.now()}`;
+    console.log(`Creating todo with title: "${testTitle}"`);
+
+    const createResponse = await request.post(`${convexApiBase}/api/mutation`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Convex ${deployKey}`,
+      },
+      data: {
+        path: 'todos:create',
+        args: { title: testTitle, priority: 'low' },
+        format: 'json',
+      },
+    });
+
+    console.log(`Create response status: ${createResponse.status()}`);
+    const createBody = await createResponse.text();
+    console.log(`Create response body: ${createBody}`);
+    expect(createResponse.ok()).toBe(true);
+
+    // 6. Query todos to find our todo and verify it has " hello there" appended
+    const listResponse = await request.post(`${convexApiBase}/api/query`, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Convex ${deployKey}`,
+      },
+      data: {
+        path: 'todos:list',
+        args: {},
+        format: 'json',
+      },
+    });
+
+    expect(listResponse.ok()).toBe(true);
+    const listResult = await listResponse.json();
+    console.log(`List response: ${JSON.stringify(listResult).substring(0, 500)}`);
+
+    // The response format is { status: "success", value: [...] }
+    const todos = listResult.value || listResult;
+    const ourTodo = (Array.isArray(todos) ? todos : []).find((t: any) =>
+      t.title && t.title.includes(testTitle)
+    );
+
+    expect(ourTodo).toBeTruthy();
+    expect(ourTodo.title).toBe(`${testTitle} hello there`);
+    console.log(`✓ Found todo with title: "${ourTodo.title}" — mutation modification is live!`);
+
+    // 7. Cleanup: remove the test todo
+    if (ourTodo?._id) {
+      const removeResponse = await request.post(`${convexApiBase}/api/mutation`, {
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Convex ${deployKey}`,
+        },
+        data: {
+          path: 'todos:remove',
+          args: { id: ourTodo._id },
+          format: 'json',
+        },
+      });
+      console.log(`Cleanup remove status: ${removeResponse.status()}`);
+    }
+
+    // 8. Restore the original todos.ts
+    await page.evaluate(() => {
+      const vfs = (window as any).__vfs__;
+      const content = vfs.readFileSync('/convex/todos.ts', 'utf8');
+      const restored = content.replace(
+        'title: args.title + " hello there",',
+        'title: args.title,'
+      );
+      vfs.writeFileSync('/convex/todos.ts', restored);
+    });
+
+    // 9. Re-deploy to restore original state
+    await page.click('#deployBtn');
+    await expect(async () => {
+      const logsText = await logs.textContent();
+      const completeCount = (logsText?.match(/\[STATUS:COMPLETE\]/g) || []).length;
+      expect(completeCount).toBeGreaterThanOrEqual(3);
+    }).toPass({ timeout: 120000 });
+    console.log('✓ Restored original mutation and re-deployed');
+
+    console.log('\n=== Deployment HTTP API Verification Test Complete ===');
   });
 });

@@ -97,6 +97,8 @@ describe('ServerBridge', () => {
       let registeredUrl: string | undefined;
 
       const mockServiceWorker = {
+        controller: true, // SW already controls page
+        addEventListener: vi.fn(),
         register: vi.fn().mockImplementation((url: string) => {
           registeredUrl = url;
           return Promise.resolve({
@@ -138,6 +140,8 @@ describe('ServerBridge', () => {
       let registeredUrl: string | undefined;
 
       const mockServiceWorker = {
+        controller: true, // SW already controls page
+        addEventListener: vi.fn(),
         register: vi.fn().mockImplementation((url: string) => {
           registeredUrl = url;
           return Promise.resolve({

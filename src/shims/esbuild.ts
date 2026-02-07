@@ -717,7 +717,7 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
   // This preserves the original paths for esbuild's output file naming.
   let entryPoints = options.entryPoints;
   if (entryPoints && globalVFS) {
-    const absWorkingDir = options.absWorkingDir || '/';
+    const absWorkingDir = options.absWorkingDir || (typeof globalThis !== 'undefined' && globalThis.process && typeof globalThis.process.cwd === 'function' ? globalThis.process.cwd() : '/');
     entryPoints = entryPoints.map(ep => {
       // Handle paths that came from previous builds with vfs: namespace prefix
       if (ep.includes('vfs:')) {
@@ -750,11 +750,14 @@ export async function build(options: BuildOptions): Promise<BuildResult> {
   }
 
   // In browser, we need write: false to get outputFiles
+  // Pass absWorkingDir so metafile paths are relative to the correct directory
+  const resolvedAbsWorkingDir = options.absWorkingDir || (typeof globalThis !== 'undefined' && globalThis.process && typeof globalThis.process.cwd === 'function' ? globalThis.process.cwd() : '/');
   const result = await esbuildInstance.build({
     ...options,
     entryPoints,
     plugins,
     write: false,
+    absWorkingDir: resolvedAbsWorkingDir,
   }) as BuildResult;
 
   // Strip 'vfs:' namespace prefix from output file paths

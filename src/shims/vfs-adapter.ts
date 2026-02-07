@@ -14,6 +14,9 @@ import type {
 } from 'just-bash';
 import type { VirtualFS } from '../virtual-fs';
 import { createNodeError } from '../virtual-fs';
+import { uint8ToBinaryString } from '../utils/binary-encoding';
+
+const _decoder = new TextDecoder();
 
 // Local types for just-bash interface compatibility
 // These are not exported from just-bash main entry point
@@ -53,7 +56,7 @@ export class VirtualFSAdapter implements IFileSystem {
     // For binary/latin1 encoding, convert each byte to a character
     if (encoding === 'binary' || encoding === 'latin1') {
       const buffer = this.vfs.readFileSync(path);
-      return String.fromCharCode(...buffer);
+      return uint8ToBinaryString(buffer);
     }
 
     // For other encodings, fall back to utf8
@@ -93,7 +96,7 @@ export class VirtualFSAdapter implements IFileSystem {
       // File doesn't exist, start with empty content
     }
     const newContent =
-      typeof content === 'string' ? content : new TextDecoder().decode(content);
+      typeof content === 'string' ? content : _decoder.decode(content);
     this.vfs.writeFileSync(path, existing + newContent);
   }
 

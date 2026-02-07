@@ -373,7 +373,7 @@
           log(`💾 Saved: ${currentFile}`);
 
           // HMR is now automatically handled by ViteDevServer via file watching
-          // The BroadcastChannel in the iframe will receive the update
+          // The postMessage to iframe will receive the update
           if (previewActive && !devServer) {
             // Fallback for legacy blob URL mode
             updatePreview();
@@ -454,6 +454,13 @@
       function updatePreview() {
         if (!previewActive || !devServerUrl) return;
 
+        // Re-register HMR target after reload
+        previewFrame.onload = () => {
+          if (devServer && previewFrame.contentWindow) {
+            devServer.setHMRTarget(previewFrame.contentWindow);
+          }
+        };
+
         // Force iframe refresh by adding timestamp
         const url = devServerUrl + '?t=' + Date.now();
         previewFrame.src = url;
@@ -465,6 +472,13 @@
         previewActive = true;
 
         if (devServerUrl) {
+          // Set up HMR target when iframe loads
+          previewFrame.onload = () => {
+            if (devServer && previewFrame.contentWindow) {
+              devServer.setHMRTarget(previewFrame.contentWindow);
+              log('🔗 HMR target connected to iframe', 'hmr');
+            }
+          };
           previewFrame.src = devServerUrl;
         }
 

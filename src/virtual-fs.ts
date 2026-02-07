@@ -3,6 +3,7 @@
  */
 
 import type { VFSSnapshot, VFSFileEntry } from './runtime-interface';
+import { uint8ToBase64, base64ToUint8 } from './utils/binary-encoding';
 
 export interface FSNode {
   type: 'file' | 'directory';
@@ -174,11 +175,7 @@ export class VirtualFS {
       // Encode binary content as base64
       let content = '';
       if (node.content && node.content.length > 0) {
-        let binary = '';
-        for (let i = 0; i < node.content.length; i++) {
-          binary += String.fromCharCode(node.content[i]);
-        }
-        content = btoa(binary);
+        content = uint8ToBase64(node.content);
       }
       files.push({ path, type: 'file', content });
     } else if (node.type === 'directory') {
@@ -199,11 +196,10 @@ export class VirtualFS {
     const vfs = new VirtualFS();
 
     // Sort entries to ensure directories are created before their contents
-    const sortedFiles = [...snapshot.files].sort((a, b) => {
-      const aDepth = a.path.split('/').length;
-      const bDepth = b.path.split('/').length;
-      return aDepth - bDepth;
-    });
+    const sortedFiles = snapshot.files
+      .map((entry, i) => ({ entry, depth: entry.path.split('/').length, i }))
+      .sort((a, b) => a.depth - b.depth || a.i - b.i)
+      .map(x => x.entry);
 
     for (const entry of sortedFiles) {
       if (entry.path === '/') continue; // Skip root
@@ -214,11 +210,7 @@ export class VirtualFS {
         // Decode base64 content
         let content: Uint8Array;
         if (entry.content) {
-          const binary = atob(entry.content);
-          content = new Uint8Array(binary.length);
-          for (let i = 0; i < binary.length; i++) {
-            content[i] = binary.charCodeAt(i);
-          }
+          content = base64ToUint8(entry.content);
         } else {
           content = new Uint8Array(0);
         }

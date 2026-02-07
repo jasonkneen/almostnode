@@ -4,6 +4,10 @@
  */
 
 import { EventEmitter } from './events';
+import { uint8ToBase64, uint8ToHex, uint8ToBinaryString } from '../utils/binary-encoding';
+
+const _encoder = new TextEncoder();
+const _decoder = new TextDecoder('utf-8');
 
 export class Readable extends EventEmitter {
   private _buffer: Uint8Array[] = [];
@@ -547,8 +551,7 @@ class BufferPolyfill extends Uint8Array {
       }
 
       // Default: utf8
-      const encoder = new TextEncoder();
-      const bytes = encoder.encode(data);
+      const bytes = _encoder.encode(data);
       return new BufferPolyfill(bytes);
     }
     if (data instanceof ArrayBuffer) {
@@ -602,47 +605,30 @@ class BufferPolyfill extends Uint8Array {
     if (enc === 'hex') {
       return string.length / 2;
     }
-    return new TextEncoder().encode(string).length;
+    return _encoder.encode(string).length;
   }
 
   toString(encoding: BufferEncoding = 'utf8'): string {
     const enc = (encoding || 'utf8').toLowerCase();
 
     if (enc === 'base64') {
-      let binary = '';
-      for (let i = 0; i < this.length; i++) {
-        binary += String.fromCharCode(this[i]);
-      }
-      return btoa(binary);
+      return uint8ToBase64(this);
     }
 
     if (enc === 'base64url') {
-      let binary = '';
-      for (let i = 0; i < this.length; i++) {
-        binary += String.fromCharCode(this[i]);
-      }
-      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+      return uint8ToBase64(this).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
     }
 
     if (enc === 'hex') {
-      let hex = '';
-      for (let i = 0; i < this.length; i++) {
-        hex += this[i].toString(16).padStart(2, '0');
-      }
-      return hex;
+      return uint8ToHex(this);
     }
 
     if (enc === 'latin1' || enc === 'binary') {
-      let str = '';
-      for (let i = 0; i < this.length; i++) {
-        str += String.fromCharCode(this[i]);
-      }
-      return str;
+      return uint8ToBinaryString(this);
     }
 
     // Default: utf8
-    const decoder = new TextDecoder('utf-8');
-    return decoder.decode(this);
+    return _decoder.decode(this);
   }
 
   slice(start?: number, end?: number): BufferPolyfill {
@@ -654,7 +640,7 @@ class BufferPolyfill extends Uint8Array {
   }
 
   write(string: string, offset?: number): number {
-    const bytes = new TextEncoder().encode(string);
+    const bytes = _encoder.encode(string);
     this.set(bytes, offset || 0);
     return bytes.length;
   }

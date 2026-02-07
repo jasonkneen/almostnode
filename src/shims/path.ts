@@ -33,20 +33,9 @@ export function normalize(path: string): string {
   return result || '.';
 }
 
-// Track join calls to debug infinite recursion
-let joinCallCount = 0;
-
 export function join(...paths: string[]): string {
   if (paths.length === 0) return '.';
-  const result = normalize(paths.filter(Boolean).join('/'));
-  // Debug: Log _generated path joins
-  if (paths.some(p => p && p.includes('_generated'))) {
-    joinCallCount++;
-    if (joinCallCount <= 20) {
-      console.log(`[path.join] (${paths.join(', ')}) -> ${result}`);
-    }
-  }
-  return result;
+  return normalize(paths.filter(Boolean).join('/'));
 }
 
 export function resolve(...paths: string[]): string {
@@ -59,7 +48,11 @@ export function resolve(...paths: string[]): string {
   }
 
   if (!resolvedPath.startsWith('/')) {
-    resolvedPath = '/' + resolvedPath;
+    // Use process.cwd() if available, matching Node.js behavior
+    const cwd = typeof globalThis !== 'undefined' && globalThis.process && typeof globalThis.process.cwd === 'function'
+      ? globalThis.process.cwd()
+      : '/';
+    resolvedPath = cwd + (resolvedPath ? '/' + resolvedPath : '');
   }
 
   return normalize(resolvedPath);

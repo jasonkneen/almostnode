@@ -183,11 +183,15 @@ const EXPLICIT_MAPPINGS: Record<string, string> = {
   'react-dom/client': 'https://esm.sh/react-dom@18.2.0/client?dev',
 };
 
-// Packages that are local or have custom shims (NOT npm packages)
+// Packages that are local, have custom shims, or are handled by the HTML import map.
+// These are NOT redirected to esm.sh by redirectNpmImports.
 const LOCAL_PACKAGES = new Set([
   'next/link', 'next/router', 'next/head', 'next/navigation',
   'next/dynamic', 'next/image', 'next/script', 'next/font/google',
   'next/font/local', 'convex/_generated/api',
+  // Convex subpath imports — resolved by the import map in generated HTML
+  // (keeps version-pinned URLs consistent with import map)
+  'convex/react', 'convex/server', 'convex/values',
 ]);
 
 /** Check if a package specifier is a bare npm import that should be redirected. */

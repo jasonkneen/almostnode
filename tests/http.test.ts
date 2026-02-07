@@ -10,6 +10,8 @@ import {
   setServerCloseCallback,
   _registerServer,
   _unregisterServer,
+  _parseWsFrame,
+  _createWsFrame,
 } from '../src/shims/http';
 import { EventEmitter } from '../src/shims/events';
 import { ServerBridge, resetServerBridge } from '../src/server-bridge';
@@ -516,6 +518,204 @@ describe('HTTP Client', () => {
     });
   });
 
+  describe('host option', () => {
+    it('should use host when hostname is not set', () => {
+      const req = new ClientRequest({
+        method: 'GET',
+        host: 'api.convex.cloud',
+        path: '/api/1.31.7/sync',
+      });
+
+      // Verify the options are stored correctly
+      expect((req as any)._options.host).toBe('api.convex.cloud');
+      expect((req as any)._options.hostname).toBeUndefined();
+    });
+
+    it('should prefer hostname over host', () => {
+      const req = new ClientRequest({
+        method: 'GET',
+        hostname: 'preferred.example.com',
+        host: 'fallback.example.com',
+        path: '/',
+      });
+
+      expect((req as any)._options.hostname).toBe('preferred.example.com');
+    });
+
+    it('should extract port from host string', () => {
+      const req = new ClientRequest({
+        method: 'GET',
+        host: 'example.com:8080',
+        path: '/api',
+      });
+
+      expect((req as any)._options.host).toBe('example.com:8080');
+    });
+
+    it('should build correct URL from host option', async () => {
+      // Intercept fetch to capture the URL
+      const originalFetch = globalThis.fetch;
+      let capturedUrl = '';
+      globalThis.fetch = async (url: any, _opts: any) => {
+        capturedUrl = url.toString();
+        return new Response('ok', { status: 200 });
+      };
+
+      try {
+        const req = new ClientRequest({
+          method: 'GET',
+          host: 'deploy.convex.cloud',
+          path: '/api/sync',
+        }, 'https');
+
+        await new Promise<void>((resolve) => {
+          req.on('response', () => resolve());
+          req.on('error', () => resolve());
+          req.end();
+        });
+
+        expect(capturedUrl).toBe('https://deploy.convex.cloud/api/sync');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('should build correct URL from host with port', async () => {
+      const originalFetch = globalThis.fetch;
+      let capturedUrl = '';
+      globalThis.fetch = async (url: any, _opts: any) => {
+        capturedUrl = url.toString();
+        return new Response('ok', { status: 200 });
+      };
+
+      try {
+        const req = new ClientRequest({
+          method: 'GET',
+          host: 'example.com:8443',
+          path: '/data',
+        }, 'https');
+
+        await new Promise<void>((resolve) => {
+          req.on('response', () => resolve());
+          req.on('error', () => resolve());
+          req.end();
+        });
+
+        expect(capturedUrl).toBe('https://example.com:8443/data');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('should prefer hostname over host when building URL', async () => {
+      const originalFetch = globalThis.fetch;
+      let capturedUrl = '';
+      globalThis.fetch = async (url: any, _opts: any) => {
+        capturedUrl = url.toString();
+        return new Response('ok', { status: 200 });
+      };
+
+      try {
+        const req = new ClientRequest({
+          method: 'GET',
+          hostname: 'preferred.example.com',
+          host: 'fallback.example.com:9999',
+          path: '/',
+        }, 'http');
+
+        await new Promise<void>((resolve) => {
+          req.on('response', () => resolve());
+          req.on('error', () => resolve());
+          req.end();
+        });
+
+        expect(capturedUrl).toBe('http://preferred.example.com/');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('should fall back to localhost when neither host nor hostname set', async () => {
+      const originalFetch = globalThis.fetch;
+      let capturedUrl = '';
+      globalThis.fetch = async (url: any, _opts: any) => {
+        capturedUrl = url.toString();
+        return new Response('ok', { status: 200 });
+      };
+
+      try {
+        const req = new ClientRequest({
+          method: 'GET',
+          path: '/test',
+        }, 'http');
+
+        await new Promise<void>((resolve) => {
+          req.on('response', () => resolve());
+          req.on('error', () => resolve());
+          req.end();
+        });
+
+        expect(capturedUrl).toBe('http://localhost/test');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  });
+
+  describe('WebSocket upgrade handling', () => {
+    it('should emit TypeError for WebSocket upgrade requests', async () => {
+      // Browser fetch() cannot perform WebSocket upgrades (strips Connection/Upgrade
+      // headers). We emit a TypeError matching what fetch() throws for network errors.
+      // Libraries like ws handle this gracefully (retry/fallback).
+      const req = new ClientRequest({
+        method: 'GET',
+        hostname: 'deploy.convex.cloud',
+        path: '/api/sync',
+        headers: {
+          'Connection': 'Upgrade',
+          'Upgrade': 'websocket',
+          'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
+          'Sec-WebSocket-Version': '13',
+        },
+      }, 'https');
+
+      const error = await new Promise<Error>((resolve) => {
+        req.on('error', (err: Error) => resolve(err));
+        req.end();
+      });
+
+      expect(error).toBeInstanceOf(TypeError);
+      expect(error.message).toBe('Failed to fetch');
+    });
+
+    it('should not intercept non-upgrade requests', async () => {
+      const originalFetch = globalThis.fetch;
+      let fetchCalled = false;
+      globalThis.fetch = async (url: any, _opts: any) => {
+        fetchCalled = true;
+        return new Response('ok', { status: 200 });
+      };
+
+      try {
+        const req = new ClientRequest({
+          method: 'GET',
+          hostname: 'example.com',
+          path: '/api',
+        }, 'https');
+
+        await new Promise<void>((resolve) => {
+          req.on('response', () => resolve());
+          req.on('error', () => resolve());
+          req.end();
+        });
+
+        expect(fetchCalled).toBe(true);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  });
+
   describe('request function', () => {
     it('should create ClientRequest with options object', () => {
       const req = request({
@@ -581,6 +781,126 @@ describe('HTTP Client', () => {
 
       expect(req).toBeInstanceOf(ClientRequest);
       expect((req as any)._protocol).toBe('https');
+    });
+  });
+});
+
+describe('WebSocket frame helpers', () => {
+  describe('_createWsFrame', () => {
+    it('should create unmasked text frame with small payload', () => {
+      const payload = new TextEncoder().encode('hello');
+      const frame = _createWsFrame(0x01, payload, false);
+
+      expect(frame[0]).toBe(0x81); // FIN + text opcode
+      expect(frame[1]).toBe(5);    // unmasked, length 5
+      expect(new TextDecoder().decode(frame.slice(2))).toBe('hello');
+    });
+
+    it('should create unmasked binary frame', () => {
+      const payload = new Uint8Array([1, 2, 3]);
+      const frame = _createWsFrame(0x02, payload, false);
+
+      expect(frame[0]).toBe(0x82); // FIN + binary opcode
+      expect(frame[1]).toBe(3);
+      expect(frame[2]).toBe(1);
+      expect(frame[3]).toBe(2);
+      expect(frame[4]).toBe(3);
+    });
+
+    it('should create masked frame', () => {
+      const payload = new TextEncoder().encode('test');
+      const frame = _createWsFrame(0x01, payload, true);
+
+      expect(frame[0]).toBe(0x81);
+      expect(frame[1]).toBe(0x80 | 4); // masked, length 4
+      // frame[2..5] = mask key, frame[6..9] = masked payload
+      expect(frame.length).toBe(2 + 4 + 4);
+    });
+
+    it('should handle medium payload (126-65535 bytes)', () => {
+      const payload = new Uint8Array(300);
+      const frame = _createWsFrame(0x01, payload, false);
+
+      expect(frame[0]).toBe(0x81);
+      expect(frame[1]).toBe(126);
+      expect((frame[2] << 8) | frame[3]).toBe(300);
+      expect(frame.length).toBe(4 + 300);
+    });
+
+    it('should create close frame', () => {
+      const payload = new Uint8Array([0x03, 0xE8]); // code 1000
+      const frame = _createWsFrame(0x08, payload, false);
+
+      expect(frame[0]).toBe(0x88); // FIN + close
+      expect(frame[1]).toBe(2);
+    });
+  });
+
+  describe('_parseWsFrame', () => {
+    it('should parse unmasked text frame', () => {
+      const frame = _createWsFrame(0x01, new TextEncoder().encode('hello'), false);
+      const parsed = _parseWsFrame(frame);
+
+      expect(parsed).not.toBeNull();
+      expect(parsed!.opcode).toBe(0x01);
+      expect(new TextDecoder().decode(parsed!.payload)).toBe('hello');
+      expect(parsed!.totalLength).toBe(frame.length);
+    });
+
+    it('should parse masked frame and unmask payload', () => {
+      const original = new TextEncoder().encode('test');
+      const frame = _createWsFrame(0x01, original, true);
+      const parsed = _parseWsFrame(frame);
+
+      expect(parsed).not.toBeNull();
+      expect(parsed!.opcode).toBe(0x01);
+      expect(new TextDecoder().decode(parsed!.payload)).toBe('test');
+    });
+
+    it('should return null for incomplete frame', () => {
+      expect(_parseWsFrame(new Uint8Array([0x81]))).toBeNull();
+      expect(_parseWsFrame(new Uint8Array([]))).toBeNull();
+    });
+
+    it('should return null for incomplete payload', () => {
+      // Header says 5 bytes but only 3 provided
+      const incomplete = new Uint8Array([0x81, 5, 0x68, 0x65, 0x6c]);
+      expect(_parseWsFrame(incomplete)).toBeNull();
+    });
+
+    it('should round-trip medium payload', () => {
+      const payload = new Uint8Array(500);
+      for (let i = 0; i < 500; i++) payload[i] = i % 256;
+
+      const frame = _createWsFrame(0x02, payload, false);
+      const parsed = _parseWsFrame(frame);
+
+      expect(parsed).not.toBeNull();
+      expect(parsed!.opcode).toBe(0x02);
+      expect(parsed!.payload.length).toBe(500);
+      expect(Array.from(parsed!.payload)).toEqual(Array.from(payload));
+    });
+
+    it('should round-trip masked medium payload', () => {
+      const payload = new Uint8Array(1000);
+      for (let i = 0; i < 1000; i++) payload[i] = i % 256;
+
+      const frame = _createWsFrame(0x02, payload, true);
+      const parsed = _parseWsFrame(frame);
+
+      expect(parsed).not.toBeNull();
+      expect(parsed!.payload.length).toBe(1000);
+      expect(Array.from(parsed!.payload)).toEqual(Array.from(payload));
+    });
+
+    it('should parse close frame', () => {
+      const closePayload = new Uint8Array([0x03, 0xE8]); // code 1000
+      const frame = _createWsFrame(0x08, closePayload, false);
+      const parsed = _parseWsFrame(frame);
+
+      expect(parsed).not.toBeNull();
+      expect(parsed!.opcode).toBe(0x08);
+      expect((parsed!.payload[0] << 8) | parsed!.payload[1]).toBe(1000);
     });
   });
 });

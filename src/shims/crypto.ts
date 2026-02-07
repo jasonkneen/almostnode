@@ -16,6 +16,18 @@ export function randomBytes(size: number): Buffer {
   return Buffer.from(array);
 }
 
+export function randomFillSync(
+  buffer: Uint8Array | Buffer,
+  offset?: number,
+  size?: number
+): Uint8Array | Buffer {
+  const start = offset || 0;
+  const len = size !== undefined ? size : (buffer.length - start);
+  const view = new Uint8Array(buffer.buffer, buffer.byteOffset + start, len);
+  crypto.getRandomValues(view);
+  return buffer;
+}
+
 export function randomUUID(): string {
   return crypto.randomUUID();
 }
@@ -808,6 +820,7 @@ async function importKey(
 
 export default {
   randomBytes,
+  randomFillSync,
   randomUUID,
   randomInt,
   getRandomValues,
