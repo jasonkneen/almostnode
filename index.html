@@ -100,6 +100,23 @@
         padding: 96px 24px 72px;
         max-width: 1100px;
         margin: 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 48px;
+      }
+      .hero-content {
+        flex: 1;
+        min-width: 0;
+      }
+      .hero-visual {
+        flex: 0 0 400px;
+        height: 400px;
+        position: relative;
+      }
+      .hero-visual canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
       }
       .hero-label {
         font-family: var(--mono);
@@ -488,6 +505,16 @@
         transition: color 0.15s;
       }
       footer a:hover { color: var(--text-bright); }
+      footer .footer-byline {
+        font-family: var(--mono);
+        font-size: 0.7rem;
+        color: var(--text-dim);
+      }
+      footer .footer-byline a {
+        color: var(--accent);
+        text-transform: none;
+        letter-spacing: 0;
+      }
       footer .license {
         font-family: var(--mono);
         font-size: 0.7rem;
@@ -495,6 +522,9 @@
       }
 
       /* ── Responsive ── */
+      @media (max-width: 900px) {
+        .hero-visual { display: none; }
+      }
       @media (max-width: 600px) {
         .nav-links { gap: 14px; }
         .nav-links a { font-size: 0.7rem; }
@@ -802,6 +832,7 @@
 
     <!-- Hero -->
     <section class="hero">
+      <div class="hero-content">
       <div class="hero-label">Open Source</div>
       <h1>Node.js in your browser</h1>
       <p class="subtitle">Run Node.js, Next.js, Vite, and Express entirely in the browser. No server required.</p>
@@ -826,6 +857,10 @@
         <a href="https://www.npmjs.com/package/almostnode"><img src="https://img.shields.io/npm/v/almostnode?style=flat-square&color=2a2a2a&labelColor=1a1a1a" alt="npm version"></a>
         <a href="https://github.com/macaly/almostnode"><img src="https://img.shields.io/github/stars/macaly/almostnode?style=flat-square&color=2a2a2a&labelColor=1a1a1a" alt="GitHub stars"></a>
         <a href="https://github.com/macaly/almostnode/blob/main/LICENSE"><img src="https://img.shields.io/github/license/macaly/almostnode?style=flat-square&color=2a2a2a&labelColor=1a1a1a" alt="License"></a>
+      </div>
+      </div>
+      <div class="hero-visual">
+        <canvas id="hero-canvas"></canvas>
       </div>
     </section>
 
@@ -1349,8 +1384,123 @@ app.listen(3000);</textarea>
         <a href="https://www.npmjs.com/package/almostnode">npm</a>
         <a href="./docs/">Docs</a>
       </div>
+      <span class="footer-byline">Built by the creators of <a href="https://macaly.com">Macaly.com</a></span>
       <span class="license">MIT License</span>
     </footer>
+
+    <!-- ASCII Donut -->
+    <script>
+    (function() {
+      var cvs = document.getElementById('hero-canvas');
+      if (!cvs) return;
+
+      function init() {
+        var par = cvs.parentElement;
+        var W = par.clientWidth;
+        var H = par.clientHeight;
+        if (!W || !H) return;
+        var dpr = window.devicePixelRatio || 1;
+
+        cvs.width = W * dpr;
+        cvs.height = H * dpr;
+
+        var ctx = cvs.getContext('2d');
+        ctx.scale(dpr, dpr);
+
+        var CHARS = '.,-~:;=!*#$@';
+        var CL = CHARS.length;
+        var COLS = 40, ROWS = 22;
+        var cw = W / COLS, ch = H / ROWS;
+        var fs = Math.max(11, Math.min(cw * 1.4, ch * 0.95));
+
+        var A = 0.5, B = 0.3;
+        var running = true;
+        var raf = 0;
+
+        function render() {
+          if (!running) return;
+
+          ctx.clearRect(0, 0, W, H);
+
+          // Subtle radial glow
+          var grad = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, W * 0.45);
+          grad.addColorStop(0, 'rgba(0, 255, 136, 0.04)');
+          grad.addColorStop(1, 'transparent');
+          ctx.fillStyle = grad;
+          ctx.fillRect(0, 0, W, H);
+
+          var out = new Int8Array(COLS * ROWS);
+          var zb = new Float32Array(COLS * ROWS);
+          for (var k = 0; k < out.length; k++) out[k] = -1;
+
+          var sA = Math.sin(A), cA = Math.cos(A);
+          var sB = Math.sin(B), cB = Math.cos(B);
+
+          for (var t = 0; t < 6.28; t += 0.07) {
+            var st = Math.sin(t), ct = Math.cos(t);
+            for (var p = 0; p < 6.28; p += 0.02) {
+              var sp = Math.sin(p), cp = Math.cos(p);
+              var h = ct + 2;
+              var D = 1 / (sp * h * sA + st * cA + 5);
+              var T = sp * h * cA - st * sA;
+
+              var x = (COLS / 2 + 28 * D * (cp * h * cB - T * sB)) | 0;
+              var y = (ROWS / 2 + 14 * D * (cp * h * sB + T * cB)) | 0;
+
+              var N = (8 * ((st * sA - sp * ct * cA) * cB
+                       - sp * ct * sA - st * cA - cp * ct * sB)) | 0;
+
+              var idx = x + COLS * y;
+              if (y >= 0 && y < ROWS && x >= 0 && x < COLS && D > zb[idx]) {
+                zb[idx] = D;
+                out[idx] = N > 0 ? N : 0;
+              }
+            }
+          }
+
+          ctx.font = fs + "px 'IBM Plex Mono',monospace";
+          ctx.textBaseline = 'middle';
+          ctx.textAlign = 'center';
+
+          for (var j = 0; j < ROWS; j++) {
+            for (var i = 0; i < COLS; i++) {
+              var ci = out[i + COLS * j];
+              if (ci >= 0) {
+                var b = ci / (CL - 1);
+                ctx.fillStyle = 'rgba(0,255,136,' + (0.15 + b * 0.85).toFixed(2) + ')';
+                if (b > 0.5) {
+                  ctx.shadowColor = '#00ff88';
+                  ctx.shadowBlur = 2 + b * 6;
+                } else {
+                  ctx.shadowBlur = 0;
+                }
+                ctx.fillText(CHARS[ci], i * cw + cw / 2, j * ch + ch / 2);
+              }
+            }
+          }
+          ctx.shadowBlur = 0;
+
+          A += 0.007;
+          B += 0.005;
+          raf = requestAnimationFrame(render);
+        }
+
+        // Only animate when visible
+        var obs = new IntersectionObserver(function(entries) {
+          if (entries[0].isIntersecting) {
+            running = true;
+            render();
+          } else {
+            running = false;
+            cancelAnimationFrame(raf);
+          }
+        });
+        obs.observe(cvs);
+      }
+
+      document.fonts.ready.then(init);
+    })();
+    </script>
 
   </body>
 </html>

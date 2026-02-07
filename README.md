@@ -8,6 +8,8 @@ A lightweight, browser-native Node.js runtime environment. Run Node.js code, ins
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-%3E%3D20-green.svg)](https://nodejs.org/)
 
+Built by the creators of [Macaly.com](https://macaly.com) — a tool that lets anyone build websites and web apps, even without coding experience. Think Claude Code for non-developers.
+
 > **Warning:** This project is experimental and may contain bugs. Use with caution in production environments.
 
 ---
@@ -909,5 +911,5 @@ MIT License - see [LICENSE](LICENSE) for details.
 ---
 
 <p align="center">
-  Made with care for the browser
+  Built by the creators of <a href="https://macaly.com">Macaly.com</a>
 </p>
