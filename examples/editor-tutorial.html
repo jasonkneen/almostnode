@@ -444,6 +444,7 @@ a:hover { text-decoration: underline; }
         try {
           // Create dev server
           devServer = new NextDevServer(vfs, { port: 3003, root: '/' });
+          devServer.start(); // Start file watching for HMR
 
           // Initialize Service Worker bridge
           const bridge = getServerBridge();

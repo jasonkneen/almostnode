@@ -176,11 +176,19 @@ vfs<span class="op">.</span><span class="fn">writeFileSync</span><span class="op
 <span class="cm">// 3. Register the server on a port</span>
 bridge<span class="op">.</span><span class="fn">registerServer</span><span class="op">(</span>devServer<span class="op">,</span> <span class="num">3000</span><span class="op">);</span>
 
-<span class="cm">// 4. Get the URL to load in the iframe</span>
+<span class="cm">// 4. Start the server (enables file watching for HMR)</span>
+devServer<span class="op">.</span><span class="fn">start</span><span class="op">();</span>
+
+<span class="cm">// 5. Get the URL to load in the iframe</span>
 <span class="kw">const</span> serverUrl <span class="op">=</span> bridge<span class="op">.</span><span class="fn">getServerUrl</span><span class="op">(</span><span class="num">3000</span><span class="op">);</span>
 <span class="cm">// → "http://localhost:5173/__virtual__/3000"</span></code></pre>
 
     <p>The Service Worker intercepts all requests to <code>/__virtual__/3000/*</code> and forwards them to the <code>NextDevServer</code> which transforms JSX, resolves routes, and returns HTML.</p>
+
+    <div class="callout">
+      <div class="callout-title">Important</div>
+      <p>You must call <code>devServer.start()</code> to enable file watching. Without it, HMR updates won't fire when you write to the VFS.</p>
+    </div>
 
     <h2>Step 4: Display the Preview</h2>
     <p>Point the iframe to the server URL and register it as an HMR target:</p>
@@ -385,6 +393,7 @@ editor<span class="op">.</span><span class="fn">addEventListener</span><span cla
 <span class="cm">// ── 4. Start dev server and preview ──</span>
 <span class="kw">async function</span> <span class="fn">start</span><span class="op">()</span> <span class="op">{</span>
   devServer <span class="op">=</span> <span class="kw">new</span> <span class="fn">NextDevServer</span><span class="op">(</span>vfs<span class="op">,</span> <span class="op">{</span> port<span class="op">:</span> <span class="num">3000</span><span class="op">,</span> root<span class="op">:</span> <span class="str">'/'</span> <span class="op">});</span>
+  devServer<span class="op">.</span><span class="fn">start</span><span class="op">();</span> <span class="cm">// Enable file watching for HMR</span>
 
   <span class="kw">const</span> bridge <span class="op">=</span> <span class="fn">getServerBridge</span><span class="op">();</span>
   <span class="kw">await</span> bridge<span class="op">.</span><span class="fn">initServiceWorker</span><span class="op">();</span>
