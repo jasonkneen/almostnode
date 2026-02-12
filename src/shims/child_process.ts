@@ -35,6 +35,23 @@ let bashInstance: Bash | null = null;
 let vfsAdapter: VirtualFSAdapter | null = null;
 let currentVfs: VirtualFS | null = null;
 
+// Track active forked child processes so the node command can detect when children exit.
+// When the last child exits, the node command uses a shorter idle timeout.
+let _activeForkedChildren = 0;
+let _onForkedChildExit: (() => void) | null = null;
+
+// Patch Object.defineProperty globally to force configurable: true on globalThis properties.
+// In real Node.js, each process has its own globalThis. In our browser environment,
+// all forks share globalThis, so libraries like vitest that define non-configurable
+// properties (e.g. __vitest_index__) need them to be configurable for re-runs.
+const _realDefineProperty = Object.defineProperty;
+Object.defineProperty = function<T>(target: T, key: PropertyKey, descriptor: PropertyDescriptor): T {
+  if (target === globalThis && descriptor && !descriptor.configurable) {
+    descriptor = { ...descriptor, configurable: true };
+  }
+  return _realDefineProperty.call(Object, target, key, descriptor);
+} as typeof Object.defineProperty;
+
 // Module-level streaming callbacks for long-running commands (e.g. vitest watch)
 // Set by container.run() before calling exec, cleared after
 let _streamStdout: ((data: string) => void) | null = null;
@@ -64,6 +81,29 @@ export function clearStreamingCallbacks(): void {
   _abortSignal = null;
 }
 
+// Reference to the currently running node command's process stdin.
+// Used to send stdin input to long-running commands (e.g. vitest watch mode).
+let _activeProcessStdin: { emit: (event: string, data: unknown) => void } | null = null;
+
+/**
+ * Send data to the stdin of the currently running node process.
+ * Emits both 'data' and 'keypress' events (vitest uses readline keypress events).
+ */
+export function sendStdin(data: string): void {
+  if (_activeProcessStdin) {
+    _activeProcessStdin.emit('data', data);
+    for (const ch of data) {
+      _activeProcessStdin.emit('keypress', ch, {
+        sequence: ch,
+        name: ch,
+        ctrl: false,
+        meta: false,
+        shift: false,
+      });
+    }
+  }
+}
+
 /**
  * Initialize the child_process shim with a VirtualFS instance
  * Creates a single Bash instance with VirtualFSAdapter for efficient file access
@@ -88,46 +128,193 @@ export function initChildProcess(vfs: VirtualFS): void {
       ? scriptPath
       : `${ctx.cwd}/${scriptPath}`.replace(/\/+/g, '/');
 
+    if (!currentVfs.existsSync(resolvedPath)) {
+      return { stdout: '', stderr: `Error: Cannot find module '${resolvedPath}'\n`, exitCode: 1 };
+    }
+
+    let stdout = '';
+    let stderr = '';
+
+    // Track whether process.exit() was called
+    let exitCalled = false;
+    let exitCode = 0;
+    let syncExecution = true;
+    let exitResolve: ((code: number) => void) | null = null;
+    const exitPromise = new Promise<number>((resolve) => { exitResolve = resolve; });
+
+    // Helper to append to stdout, also streaming if configured
+    const appendStdout = (data: string) => {
+      stdout += data;
+      if (_streamStdout) _streamStdout(data);
+    };
+    const appendStderr = (data: string) => {
+      stderr += data;
+      if (_streamStderr) _streamStderr(data);
+    };
+
+    // Create a runtime with output capture for both console.log AND process.stdout.write
+    const runtime = new Runtime(currentVfs, {
+      cwd: ctx.cwd,
+      env: ctx.env,
+      onConsole: (method, consoleArgs) => {
+        const msg = consoleArgs.map(a => String(a)).join(' ') + '\n';
+        if (method === 'error') {
+          appendStderr(msg);
+        } else {
+          appendStdout(msg);
+        }
+      },
+      onStdout: (data: string) => {
+        appendStdout(data);
+      },
+      onStderr: (data: string) => {
+        appendStderr(data);
+      },
+    });
+
+    // Override process.exit to resolve the completion promise
+    const proc = runtime.getProcess();
+    proc.exit = ((code = 0) => {
+      if (!exitCalled) {
+        exitCalled = true;
+        exitCode = code;
+        proc.emit('exit', code);
+        exitResolve!(code);
+      }
+      // In sync context, throw to stop execution (like real process.exit)
+      // In async context, return silently to avoid unhandled rejections
+      if (syncExecution) {
+        throw new Error(`Process exited with code ${code}`);
+      }
+    }) as (code?: number) => never;
+
+    // Set up process.argv for the script
+    proc.argv = ['node', resolvedPath, ...args.slice(1)];
+
+    // For long-running commands (watch mode), report as TTY so tools like
+    // vitest set up interactive features (file watching, stdin commands).
+    // Also track stdin so external code can send input via sendStdin().
+    if (_abortSignal) {
+      proc.stdout.isTTY = true;
+      proc.stderr.isTTY = true;
+      proc.stdin.isTTY = true;
+      proc.stdin.setRawMode = () => proc.stdin;
+      _activeProcessStdin = proc.stdin;
+    }
+
     try {
-      // Check if file exists
-      if (!currentVfs.existsSync(resolvedPath)) {
-        return { stdout: '', stderr: `Error: Cannot find module '${resolvedPath}'\n`, exitCode: 1 };
-      }
-
-      let stdout = '';
-      let stderr = '';
-
-      // Create a runtime with the current environment
-      const runtime = new Runtime(currentVfs, {
-        cwd: ctx.cwd,
-        env: ctx.env,
-        onConsole: (method, consoleArgs) => {
-          const msg = consoleArgs.map(a => String(a)).join(' ') + '\n';
-          if (method === 'error') {
-            stderr += msg;
-          } else {
-            stdout += msg;
-          }
-        },
-      });
-
-      // Set up process.argv for the script
-      const processShim = (globalThis as any).process || {};
-      const originalArgv = processShim.argv;
-      processShim.argv = ['node', resolvedPath, ...args.slice(1)];
-      (globalThis as any).process = processShim;
-
-      try {
-        // Run the script
-        runtime.runFile(resolvedPath);
-        return { stdout, stderr, exitCode: 0 };
-      } finally {
-        // Restore original argv
-        processShim.argv = originalArgv;
-      }
+      // Run the script (synchronous part)
+      runtime.runFile(resolvedPath);
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      return { stdout: '', stderr: `Error: ${errorMsg}\n`, exitCode: 1 };
+      // process.exit() throws to stop sync execution — this is expected
+      if (error instanceof Error && error.message.startsWith('Process exited with code')) {
+        return { stdout, stderr, exitCode };
+      }
+      // Real error
+      const errorMsg = error instanceof Error
+        ? `${error.message}\n${error.stack || ''}`
+        : String(error);
+      return { stdout, stderr: stderr + `Error: ${errorMsg}\n`, exitCode: 1 };
+    } finally {
+      // After runFile returns, switch to async mode (no more throwing from process.exit)
+      syncExecution = false;
+    }
+
+    // If process.exit was called synchronously (but didn't throw for some reason), return
+    if (exitCalled) {
+      return { stdout, stderr, exitCode };
+    }
+
+    // Script returned without calling process.exit().
+    // Heuristic: if we already captured output, the script likely finished synchronously
+    // (e.g. a simple "console.log('hello')" script). Return immediately.
+    if (stdout.length > 0 || stderr.length > 0) {
+      // Brief pause for any trailing microtasks
+      await new Promise(r => setTimeout(r, 0));
+      return { stdout, stderr, exitCode: exitCalled ? exitCode : 0 };
+    }
+
+    // No output yet — script likely has async work (e.g. vitest test runner).
+    // Wait for process.exit() or until output stabilizes.
+    // Also catch unhandled rejections from async code to surface errors.
+
+    // Catch unhandled rejections from the script's async code
+    const rejectionHandler = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      // Ignore process.exit throws (they're expected)
+      if (reason instanceof Error && reason.message.startsWith('Process exited with code')) {
+        event.preventDefault();
+        return;
+      }
+      const msg = reason instanceof Error
+        ? `Unhandled rejection: ${reason.message}\n${reason.stack || ''}\n`
+        : `Unhandled rejection: ${String(reason)}\n`;
+      appendStderr(msg);
+    };
+    globalThis.addEventListener('unhandledrejection', rejectionHandler);
+
+    // Listen for forked child exits to shorten the idle timeout.
+    // Many CLI tools (vitest, jest, etc.) fork workers and exit shortly after
+    // all children complete. We use a shorter timeout once children are done.
+    let childrenExited = false;
+    const prevChildExitHandler = _onForkedChildExit;
+    _onForkedChildExit = () => {
+      if (_activeForkedChildren <= 0) childrenExited = true;
+      prevChildExitHandler?.();
+    };
+
+    try {
+      // Poll until process.exit is called, output stabilizes, or we time out
+      const MAX_TOTAL_MS = 60000;
+      const IDLE_TIMEOUT_MS = 500;
+      const POST_CHILD_EXIT_IDLE_MS = 100; // short timeout after children finish
+      const CHECK_MS = 50;
+      const startTime = Date.now();
+      let lastOutputLen = stdout.length + stderr.length;
+      let idleMs = 0;
+
+      // When an abort signal is present (e.g. watch mode), don't apply idle timeout —
+      // only exit when aborted or process.exit is called.
+      const isLongRunning = !!_abortSignal;
+
+      while (!exitCalled) {
+        // Check abort signal for long-running commands (watch mode)
+        if (_abortSignal?.aborted) break;
+
+        // Check if exitPromise resolved (non-blocking)
+        const raceResult = await Promise.race([
+          exitPromise.then(() => 'exit' as const),
+          new Promise<'tick'>(r => setTimeout(() => r('tick'), CHECK_MS)),
+        ]);
+
+        if (raceResult === 'exit' || exitCalled) break;
+        if (_abortSignal?.aborted) break;
+
+        const currentLen = stdout.length + stderr.length;
+        if (currentLen > lastOutputLen) {
+          // New output — reset idle timer
+          lastOutputLen = currentLen;
+          idleMs = 0;
+        } else {
+          idleMs += CHECK_MS;
+        }
+
+        // Use shorter idle timeout once all forked children have exited
+        // Skip idle timeout for long-running commands (watch mode)
+        if (!isLongRunning) {
+          const effectiveIdle = childrenExited ? POST_CHILD_EXIT_IDLE_MS : IDLE_TIMEOUT_MS;
+          if (lastOutputLen > 0 && idleMs >= effectiveIdle) break;
+        }
+
+        // Hard timeout (skip for long-running commands)
+        if (!isLongRunning && Date.now() - startTime >= MAX_TOTAL_MS) break;
+      }
+
+      return { stdout, stderr, exitCode: exitCalled ? exitCode : 0 };
+    } finally {
+      _activeProcessStdin = null;
+      _onForkedChildExit = prevChildExitHandler;
+      globalThis.removeEventListener('unhandledrejection', rejectionHandler);
     }
   });
 
@@ -227,358 +414,6 @@ export function initChildProcess(vfs: VirtualFS): void {
     }
   });
 
-  /**
-   * Find test files in the given directory (recursive, skips node_modules)
-   */
-  function findTestFiles(dir: string): string[] {
-    const testFiles: string[] = [];
-    const testPattern = /\.(test|spec)\.(js|ts|jsx|tsx|mjs|cjs)$/;
-
-    function walk(currentDir: string) {
-      try {
-        const entries = currentVfs!.readdirSync(currentDir);
-        for (const entry of entries) {
-          if (entry === 'node_modules' || entry === '.git') continue;
-          const fullPath = `${currentDir}/${entry}`.replace(/\/+/g, '/');
-          try {
-            const stat = currentVfs!.statSync(fullPath);
-            if (stat.isDirectory()) {
-              walk(fullPath);
-            } else if (testPattern.test(entry)) {
-              testFiles.push(fullPath);
-            }
-          } catch {
-            // Skip files that can't be stat'd
-          }
-        }
-      } catch {
-        // Directory doesn't exist or can't be read
-      }
-    }
-
-    walk(dir);
-    return testFiles.sort();
-  }
-
-  // Vitest shim code — uses real @vitest/expect for assertions
-  // Written to VFS so require('vitest') resolves naturally through Runtime
-  const vitestShimCode = `
-// Vitest shim for almostnode — uses real @vitest/expect for assertions
-var expectModule = require('@vitest/expect');
-
-// Register jest-like matchers (.toBe, .toContain, etc.) on chai
-expectModule.chai.use(expectModule.JestChaiExpect);
-expectModule.chai.use(expectModule.JestExtend);
-
-var chaiExpect = expectModule.chai.expect;
-
-// Results collector
-var results = globalThis.__vitestResults;
-
-function expect(actual) {
-  return chaiExpect(actual);
-}
-expect.assertions = function() {};
-expect.hasAssertions = function() {};
-
-function describe(name, fn) {
-  var suite = { name: name, tests: [], passed: 0, failed: 0 };
-  results.suites.push(suite);
-  var prevSuite = results.current;
-  results.current = suite;
-  try { fn(); } finally { results.current = prevSuite; }
-}
-
-function it(name, fn) {
-  var suite = results.current || { name: '', tests: [], passed: 0, failed: 0 };
-  if (!results.current) results.suites.push(suite);
-  var testEntry = { name: name, passed: false, error: null, duration: 0 };
-  suite.tests.push(testEntry);
-  if (globalThis.__vitestBeforeEach) {
-    try { globalThis.__vitestBeforeEach(); } catch(e) {}
-  }
-  var start = Date.now();
-  try {
-    fn();
-    testEntry.passed = true;
-    testEntry.duration = Date.now() - start;
-    suite.passed++;
-  } catch(e) {
-    testEntry.error = e && e.message ? e.message : String(e);
-    testEntry.duration = Date.now() - start;
-    suite.failed++;
-  }
-  if (globalThis.__vitestAfterEach) {
-    try { globalThis.__vitestAfterEach(); } catch(e) {}
-  }
-}
-
-function vi_fn() {
-  var f = function() { f.mock.calls.push(Array.prototype.slice.call(arguments)); return undefined; };
-  f.mock = { calls: [] };
-  f.mockReturnValue = function(v) { var orig = f; f = function() { orig.mock.calls.push(Array.prototype.slice.call(arguments)); return v; }; f.mock = orig.mock; return f; };
-  f.mockImplementation = function(impl) { var orig = f; f = function() { orig.mock.calls.push(Array.prototype.slice.call(arguments)); return impl.apply(null, arguments); }; f.mock = orig.mock; return f; };
-  return f;
-}
-
-module.exports = {
-  describe: describe,
-  it: it,
-  test: it,
-  expect: expect,
-  vi: { fn: vi_fn },
-  beforeAll: function(fn) { fn(); },
-  afterAll: function() {},
-  beforeEach: function(fn) { globalThis.__vitestBeforeEach = fn; },
-  afterEach: function(fn) { globalThis.__vitestAfterEach = fn; },
-  suite: describe,
-};
-`;
-
-  /**
-   * Write the vitest shim to VFS so require('vitest') resolves to our wrapper.
-   * Must be called once before running tests. Separated from runTestsOnce()
-   * to avoid triggering VFS watchers during watch mode re-runs.
-   */
-  function writeVitestShim(): void {
-    currentVfs!.writeFileSync('/node_modules/vitest/index.cjs', vitestShimCode);
-    currentVfs!.writeFileSync('/node_modules/vitest/dist/index.js', vitestShimCode);
-  }
-
-  /**
-   * Run all test files once and return formatted output.
-   * Reusable by both batch mode (vitest run) and watch mode (vitest).
-   * Does NOT write to VFS — call writeVitestShim() before the first run.
-   */
-  function runTestsOnce(testFiles: string[], ctx: CommandContext): { stdout: string; stderr: string; exitCode: number } {
-    let stdout = '';
-    let stderr = '';
-    const startTime = Date.now();
-
-    let totalTests = 0;
-    let totalPassed = 0;
-    let totalFailed = 0;
-    let filesPassed = 0;
-    let filesFailed = 0;
-    const failures: Array<{ file: string; suite: string; test: string; error: string }> = [];
-
-    stdout += '\n';
-
-    for (const testFile of testFiles) {
-      if (!currentVfs!.existsSync(testFile)) {
-        stderr += `File not found: ${testFile}\n`;
-        filesFailed++;
-        continue;
-      }
-
-      const runtime = new Runtime(currentVfs!, {
-        cwd: ctx.cwd,
-        env: { ...ctx.env, NODE_ENV: 'test' },
-        onConsole: (method: string, consoleArgs: unknown[]) => {
-          const msg = consoleArgs.map(a => String(a)).join(' ') + '\n';
-          if (method === 'error' || method === 'warn') {
-            stderr += msg;
-          } else {
-            stdout += msg;
-          }
-        },
-      });
-
-      (globalThis as any).__vitestResults = { suites: [], current: null };
-
-      try {
-        runtime.runFile(testFile);
-
-        const results = (globalThis as any).__vitestResults;
-        let filePassed = true;
-
-        for (const suite of results.suites) {
-          for (const test of suite.tests) {
-            totalTests++;
-            if (test.passed) {
-              totalPassed++;
-              const suiteName = suite.name ? `${suite.name} > ` : '';
-              stdout += ` \x1b[32m✓\x1b[0m ${suiteName}${test.name} \x1b[2m${test.duration}ms\x1b[0m\n`;
-            } else {
-              totalFailed++;
-              filePassed = false;
-              const suiteName = suite.name ? `${suite.name} > ` : '';
-              stdout += ` \x1b[31m✗\x1b[0m ${suiteName}${test.name} \x1b[2m${test.duration}ms\x1b[0m\n`;
-              failures.push({
-                file: testFile,
-                suite: suite.name,
-                test: test.name,
-                error: test.error || 'Unknown error',
-              });
-            }
-          }
-        }
-
-        if (filePassed) filesPassed++;
-        else filesFailed++;
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        stderr += `Error running ${testFile}: ${errorMsg}\n`;
-        filesFailed++;
-      }
-    }
-
-    // Print failure details
-    if (failures.length > 0) {
-      stdout += '\n';
-      for (const f of failures) {
-        stdout += ` \x1b[31mFAIL\x1b[0m ${f.suite ? f.suite + ' > ' : ''}${f.test}\n`;
-        stdout += `   ${f.error}\n\n`;
-      }
-    }
-
-    // Print summary
-    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-    const totalFiles = filesPassed + filesFailed;
-    stdout += '\n';
-
-    if (filesFailed > 0) {
-      stdout += ` Test Files  \x1b[31m${filesFailed} failed\x1b[0m`;
-      if (filesPassed > 0) stdout += ` | \x1b[32m${filesPassed} passed\x1b[0m`;
-      stdout += ` (${totalFiles})\n`;
-    } else {
-      stdout += ` Test Files  \x1b[32m${filesPassed} passed\x1b[0m (${totalFiles})\n`;
-    }
-
-    if (totalFailed > 0) {
-      stdout += `      Tests  \x1b[31m${totalFailed} failed\x1b[0m`;
-      if (totalPassed > 0) stdout += ` | \x1b[32m${totalPassed} passed\x1b[0m`;
-      stdout += ` (${totalTests})\n`;
-    } else {
-      stdout += `      Tests  \x1b[32m${totalPassed} passed\x1b[0m (${totalTests})\n`;
-    }
-
-    stdout += `   Duration  ${duration}s\n`;
-
-    return { stdout, stderr, exitCode: totalFailed > 0 ? 1 : 0 };
-  }
-
-  // Create custom 'vitest' command that runs tests using real vitest packages
-  // Uses @vitest/runner for describe/it/test and @vitest/expect for assertions
-  // Supports: vitest run (batch), vitest / vitest watch (watch mode with VFS watchers)
-  const vitestCommand = defineCommand('vitest', async (args, ctx) => {
-    if (!currentVfs) {
-      return { stdout: '', stderr: 'VFS not initialized\n', exitCode: 1 };
-    }
-
-    // Check if vitest is installed (we need @vitest/runner and @vitest/expect)
-    if (!currentVfs.existsSync('/node_modules/@vitest/runner/package.json') ||
-        !currentVfs.existsSync('/node_modules/@vitest/expect/package.json')) {
-      return {
-        stdout: '',
-        stderr: 'vitest not installed. Run: npm install vitest\n',
-        exitCode: 1,
-      };
-    }
-
-    // Parse args: "vitest run" (batch), "vitest" or "vitest watch" (watch mode)
-    const subcommand = args[0];
-    const isRunMode = subcommand === 'run' || subcommand === '--run';
-    const isWatchMode = !subcommand || subcommand === 'watch' || subcommand === '--watch';
-
-    if (subcommand && !isRunMode && !isWatchMode) {
-      // Allow file paths as direct args (no subcommand)
-      const looksLikeFile = subcommand.includes('.') || subcommand.startsWith('/') || subcommand.startsWith('./');
-      if (!looksLikeFile) {
-        return {
-          stdout: '',
-          stderr: `Unknown command: vitest ${subcommand}\nSupported: vitest run [file], vitest watch, vitest [file]\n`,
-          exitCode: 1,
-        };
-      }
-    }
-
-    // Find test files: specific file from args, or discover *.test.* / *.spec.* files
-    const specificFile = args.find(a => !a.startsWith('-') && a !== 'run' && a !== 'watch');
-    const testFiles = specificFile
-      ? [specificFile.startsWith('/') ? specificFile : `${ctx.cwd}/${specificFile}`.replace(/\/+/g, '/')]
-      : findTestFiles(ctx.cwd);
-
-    if (testFiles.length === 0) {
-      return {
-        stdout: '',
-        stderr: 'No test files found.\nVitest looks for files matching: *.test.{js,ts,jsx,tsx}, *.spec.{js,ts,jsx,tsx}\n',
-        exitCode: 1,
-      };
-    }
-
-    // Write vitest shim once before any test runs
-    writeVitestShim();
-
-    // Batch mode: run once and return
-    if (isRunMode) {
-      return runTestsOnce(testFiles, ctx);
-    }
-
-    // Watch mode: run tests, watch VFS for changes, re-run on change
-    const initialResult = runTestsOnce(testFiles, ctx);
-
-    // If no streaming callback, fall back to batch mode
-    if (!_streamStdout) {
-      return initialResult;
-    }
-
-    // Stream initial results
-    _streamStdout(initialResult.stdout);
-    if (_streamStderr && initialResult.stderr) {
-      _streamStderr(initialResult.stderr);
-    }
-
-    _streamStdout('\n\x1b[2m[watch] waiting for file changes...\x1b[0m\n');
-
-    // Set up VFS watcher for re-running on file changes
-    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-    let isRerunning = false;
-
-    const watcher = currentVfs.watch('/', { recursive: true }, (_eventType: string, filename: string | null) => {
-      if (!filename || filename.includes('node_modules')) return;
-      if (isRerunning) return; // Guard against re-entrant triggers
-      // Debounce rapid changes (e.g. editor saves)
-      if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(() => {
-        isRerunning = true;
-        try {
-          // Re-discover test files in case new ones were added
-          const currentTestFiles = specificFile ? testFiles : findTestFiles(ctx.cwd);
-          if (currentTestFiles.length === 0) return;
-
-          if (_streamStdout) {
-            _streamStdout('\n\x1b[2m[watch] re-running tests...\x1b[0m\n');
-          }
-          const result = runTestsOnce(currentTestFiles, ctx);
-          if (_streamStdout) _streamStdout(result.stdout);
-          if (_streamStderr && result.stderr) _streamStderr(result.stderr);
-          if (_streamStdout) {
-            _streamStdout('\n\x1b[2m[watch] waiting for file changes...\x1b[0m\n');
-          }
-        } finally {
-          isRerunning = false;
-        }
-      }, 300);
-    });
-
-    // Wait for abort signal to stop watching
-    return new Promise<JustBashExecResult>((resolve) => {
-      if (_abortSignal) {
-        _abortSignal.addEventListener('abort', () => {
-          if (debounceTimer) clearTimeout(debounceTimer);
-          watcher.close();
-          if (_streamStdout) {
-            _streamStdout('\n\x1b[2m[watch] stopped\x1b[0m\n');
-          }
-          resolve({ stdout: '', stderr: '', exitCode: 0 });
-        });
-      }
-      // If no abort signal, the command will hang forever — this is intentional
-      // for long-running watch mode. Callers should always provide a signal.
-    });
-  });
-
   bashInstance = new Bash({
     fs: vfsAdapter,
     cwd: '/',
@@ -588,7 +423,7 @@ module.exports = {
       PATH: '/usr/local/bin:/usr/bin:/bin:/node_modules/.bin',
       NODE_ENV: 'development',
     },
-    customCommands: [nodeCommand, convexCommand, npmCommand, vitestCommand],
+    customCommands: [nodeCommand, convexCommand, npmCommand],
   });
 }
 
@@ -1026,10 +861,175 @@ export function execFile(
 }
 
 /**
- * Fork is not supported in browser
+ * Fork — runs a Node.js module in a simulated child process using a new Runtime.
+ * In the browser, there's no real process forking. Instead we:
+ * 1. Create a ChildProcess with IPC (send/on('message'))
+ * 2. Create a new Runtime to execute the module
+ * 3. Wire up bidirectional IPC between parent and child
  */
-export function fork(): never {
-  throw new Error('fork is not supported in browser environment');
+export function fork(
+  modulePath: string,
+  argsOrOptions?: string[] | Record<string, unknown>,
+  options?: Record<string, unknown>
+): ChildProcess {
+  if (!currentVfs) {
+    throw new Error('VFS not initialized');
+  }
+
+  // Parse overloaded arguments
+  let args: string[] = [];
+  let opts: Record<string, unknown> = {};
+  if (Array.isArray(argsOrOptions)) {
+    args = argsOrOptions;
+    opts = options || {};
+  } else if (argsOrOptions) {
+    opts = argsOrOptions;
+  }
+
+  const cwd = (opts.cwd as string) || '/';
+  const env = (opts.env as Record<string, string>) || {};
+  const execArgv = (opts.execArgv as string[]) || [];
+
+  // Resolve the module path
+  const resolvedPath = modulePath.startsWith('/')
+    ? modulePath
+    : `${cwd}/${modulePath}`.replace(/\/+/g, '/');
+
+  const child = new ChildProcess();
+  child.connected = true;
+  child.spawnargs = ['node', ...execArgv, resolvedPath, ...args];
+  child.spawnfile = 'node';
+
+  // Create a Runtime for the child process
+  const childRuntime = new Runtime(currentVfs!, {
+    cwd,
+    env,
+    onConsole: (method, consoleArgs) => {
+      const msg = consoleArgs.map(a => String(a)).join(' ');
+      if (method === 'error' || method === 'warn') {
+        child.stderr?.emit('data', msg + '\n');
+      } else {
+        child.stdout?.emit('data', msg + '\n');
+      }
+    },
+    onStdout: (data: string) => {
+      child.stdout?.emit('data', data);
+    },
+    onStderr: (data: string) => {
+      child.stderr?.emit('data', data);
+    },
+  });
+
+  const childProc = childRuntime.getProcess();
+  childProc.argv = ['node', resolvedPath, ...args];
+
+  // Set up bidirectional IPC with serialized delivery.
+  // In real Node.js, IPC messages cross a process boundary (pipe/fd), so there's
+  // natural latency. In our same-thread implementation, we need to serialize
+  // message delivery to prevent race conditions (e.g. vitest's reporter receiving
+  // task-update before the "collected" tasks are registered).
+
+  // Clone IPC messages to mimic real Node.js IPC behavior.
+  // Real IPC serializes messages across process boundaries (V8 serializer).
+  // Without cloning, shared object references cause issues: vitest's child
+  // modifies task objects after sending, and the parent sees stale/corrupted state.
+  const cloneIpcMessage = (msg: unknown): unknown => {
+    try { return structuredClone(msg); } catch { return msg; }
+  };
+
+  // Parent sends → child process receives
+  child.send = (message: unknown, _callback?: (error: Error | null) => void): boolean => {
+    if (!child.connected) return false;
+    const cloned = cloneIpcMessage(message);
+    setTimeout(() => {
+      childProc.emit('message', cloned);
+    }, 0);
+    return true;
+  };
+
+  // Child sends → parent ChildProcess receives (serialized + awaited)
+  // In real Node.js, IPC crosses a process boundary so messages are naturally serialized.
+  // In our same-thread implementation, we must manually serialize AND await async handlers.
+  // Using emit() won't work — EventEmitter is fire-and-forget for async handlers.
+  // Instead, we directly invoke each 'message' listener and await any returned promises.
+  // This ensures birpc's async onCollected finishes before onTaskUpdate starts.
+  let ipcQueue: Promise<void> = Promise.resolve();
+  childProc.send = ((message: unknown, _callback?: (error: Error | null) => void): boolean => {
+    if (!child.connected) return false;
+    const cloned = cloneIpcMessage(message);
+    ipcQueue = ipcQueue.then(async () => {
+      const listeners = child.listeners('message');
+      for (const listener of listeners) {
+        try {
+          const result = (listener as (...args: unknown[]) => unknown)(cloned);
+          if (result && typeof (result as Promise<unknown>).then === 'function') {
+            await result;
+          }
+        } catch {
+          // Handler errors propagate through vitest's own error handling
+        }
+      }
+    });
+    return true;
+  }) as any;
+  childProc.connected = true;
+
+  // Track this fork in the active children count
+  _activeForkedChildren++;
+
+  const notifyChildExit = () => {
+    _activeForkedChildren--;
+    _onForkedChildExit?.();
+  };
+
+  // Override child's process.exit
+  childProc.exit = ((code = 0) => {
+    child.exitCode = code;
+    child.connected = false;
+    childProc.connected = false;
+    childProc.emit('exit', code);
+    child.emit('exit', code, null);
+    child.emit('close', code, null);
+    notifyChildExit();
+  }) as (code?: number) => never;
+
+  // Override child's kill to disconnect
+  child.kill = (signal?: string): boolean => {
+    child.killed = true;
+    child.connected = false;
+    childProc.connected = false;
+    childProc.emit('exit', null, signal || 'SIGTERM');
+    child.emit('exit', null, signal || 'SIGTERM');
+    child.emit('close', null, signal || 'SIGTERM');
+    notifyChildExit();
+    return true;
+  };
+
+  child.disconnect = (): void => {
+    child.connected = false;
+    childProc.connected = false;
+    child.emit('disconnect');
+  };
+
+  // Run the module asynchronously
+  setTimeout(() => {
+    try {
+      childRuntime.runFile(resolvedPath);
+    } catch (error) {
+      // process.exit throws in sync mode — that's normal
+      if (error instanceof Error && error.message.startsWith('Process exited with code')) {
+        return;
+      }
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      child.stderr?.emit('data', `Error in forked process: ${errorMsg}\n`);
+      child.exitCode = 1;
+      child.emit('error', error);
+      child.emit('exit', 1, null);
+      child.emit('close', 1, null);
+    }
+  }, 0);
+
+  return child;
 }
 
 /**

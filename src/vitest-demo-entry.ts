@@ -129,8 +129,10 @@ term.open(terminalEl);
 requestAnimationFrame(() => fitAddon.fit());
 new ResizeObserver(() => fitAddon.fit()).observe(terminalEl);
 
-// Expose terminal for E2E tests
+// Expose for E2E tests
 (window as any).__term = term;
+(window as any).__container = container;
+(window as any).__files = files;
 
 function writeToTerminal(text: string) {
   term.write(text.replace(/\n/g, '\r\n'));
@@ -174,7 +176,16 @@ function switchTab(fileName: string) {
 function saveFile() {
   files[activeFile] = editor.value;
   container.vfs.writeFileSync(`/${activeFile}`, editor.value);
+  // In watch mode, restart vitest to pick up file changes.
+  // Vitest caches modules internally (Vite's module graph), so we need a full
+  // restart to re-read updated files from VFS.
+  if (watchAbortController) {
+    restartWatchMode();
+  }
 }
+
+// Flag to indicate watch mode should restart after stopping
+let pendingRestart = false;
 
 async function startWatchMode() {
   if (isRunning) return;
@@ -189,7 +200,7 @@ async function startWatchMode() {
   writeToTerminal('\x1b[34m[watch] starting vitest in watch mode...\x1b[0m\n');
 
   try {
-    await container.run('vitest', {
+    await container.run('vitest --watch', {
       onStdout: (data: string) => writeToTerminal(data),
       onStderr: (data: string) => writeToTerminal(data),
       signal: watchAbortController.signal,
@@ -200,12 +211,27 @@ async function startWatchMode() {
 
   isRunning = false;
   watchAbortController = null;
-  setStatus('Ready');
-  showPrompt();
+
+  // If a restart is pending (file was saved), immediately start again
+  if (pendingRestart) {
+    pendingRestart = false;
+    startWatchMode();
+  } else {
+    setStatus('Ready');
+    showPrompt();
+  }
 }
 
 function stopWatchMode() {
+  pendingRestart = false;
   if (watchAbortController) {
+    watchAbortController.abort();
+  }
+}
+
+function restartWatchMode() {
+  if (watchAbortController) {
+    pendingRestart = true;
     watchAbortController.abort();
   }
 }

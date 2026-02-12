@@ -77,9 +77,7 @@ test.describe('Vitest Demo', () => {
     await waitForTerminalText(page, 'Duration');
 
     const output = await getTerminalText(page);
-    expect(output).toContain('capitalizes the first letter');
-    expect(output).toContain('adds two numbers');
-    expect(output).toContain('finds a word in a string');
+    expect(output).toContain('utils.test.js');
     expect(output).toContain('6 passed');
     expect(output).toContain('Test Files');
   });
@@ -157,13 +155,14 @@ test.describe('Vitest Demo', () => {
     await page.click('#watchMode');
 
     // Wait for initial test run to complete
-    await waitForTerminalText(page, 'waiting for file changes', 20000);
+    await waitForTerminalText(page, 'Waiting for file changes', 20000);
 
     // Verify initial run passed
     const initialOutput = await getTerminalText(page);
     expect(initialOutput).toContain('6 passed');
 
-    // Edit a source file and save to trigger re-run
+    // Edit a source file and save to trigger restart
+    // (vitest restarts to pick up VFS changes since it caches modules internally)
     await page.click('.file-tab[data-file="utils.js"]');
     await page.waitForTimeout(300);
     const editor = page.locator('#editor');
@@ -171,10 +170,8 @@ test.describe('Vitest Demo', () => {
     await editor.fill(content + '\n// trigger change');
     await page.click('#saveBtn');
 
-    // Wait for watch mode to detect change and re-run
-    await waitForTerminalText(page, 're-running tests', 10000);
-
-    // Wait for the re-run to complete (second "waiting for file changes")
+    // Wait for vitest to restart and show results
+    // The restart produces a fresh "starting vitest in watch mode" + new results
     await page.waitForFunction(
       () => {
         const term = (window as any).__term;
@@ -185,14 +182,19 @@ test.describe('Vitest Demo', () => {
           const line = buffer.getLine(i);
           if (line) text += line.translateToString(true) + '\n';
         }
-        const idx1 = text.indexOf('waiting for file changes');
-        return idx1 >= 0 && text.indexOf('waiting for file changes', idx1 + 1) >= 0;
+        // Look for a second instance of "starting vitest" (restart)
+        const idx1 = text.indexOf('starting vitest in watch mode');
+        return idx1 >= 0 && text.indexOf('starting vitest in watch mode', idx1 + 1) >= 0;
       },
-      { timeout: 15000 }
+      { timeout: 20000 }
     );
+
+    // Verify restart completed with passing tests
+    await waitForTerminalText(page, 'Waiting for file changes', 10000);
+    const rerunOutput = await getTerminalText(page);
+    expect(rerunOutput).toContain('6 passed');
 
     // Disable watch mode
     await page.click('#watchMode');
-    await waitForTerminalText(page, 'stopped');
   });
 });

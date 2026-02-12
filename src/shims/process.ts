@@ -21,6 +21,13 @@ interface ProcessStream {
   removeListener: (event: string, listener: EventListener) => ProcessStream;
   removeAllListeners: (event?: string) => ProcessStream;
   setMaxListeners: (n: number) => ProcessStream;
+  getMaxListeners: () => number;
+  listenerCount: (event: string) => number;
+  listeners: (event: string) => EventListener[];
+  rawListeners: (event: string) => EventListener[];
+  prependListener: (event: string, listener: EventListener) => ProcessStream;
+  prependOnceListener: (event: string, listener: EventListener) => ProcessStream;
+  eventNames: () => string[];
   pause?: () => ProcessStream;
   resume?: () => ProcessStream;
   setEncoding?: (encoding: string) => ProcessStream;
@@ -121,6 +128,29 @@ function createProcessStream(
       emitter.setMaxListeners(n);
       return stream;
     },
+    getMaxListeners() {
+      return emitter.getMaxListeners();
+    },
+    listenerCount(event: string) {
+      return emitter.listenerCount(event);
+    },
+    listeners(event: string) {
+      return emitter.listeners(event);
+    },
+    rawListeners(event: string) {
+      return emitter.rawListeners(event);
+    },
+    prependListener(event: string, listener: EventListener) {
+      emitter.prependListener(event, listener);
+      return stream;
+    },
+    prependOnceListener(event: string, listener: EventListener) {
+      emitter.prependOnceListener(event, listener);
+      return stream;
+    },
+    eventNames() {
+      return emitter.eventNames();
+    },
     pause() {
       return stream;
     },
@@ -163,6 +193,8 @@ export function createProcess(options?: {
   cwd?: string;
   env?: ProcessEnv;
   onExit?: (code: number) => void;
+  onStdout?: (data: string) => void;
+  onStderr?: (data: string) => void;
 }): Process {
   let currentDir = options?.cwd || '/';
   const env: ProcessEnv = {
@@ -223,12 +255,20 @@ export function createProcess(options?: {
     },
 
     stdout: createProcessStream(true, (data: string) => {
-      console.log(data);
+      if (options?.onStdout) {
+        options.onStdout(data);
+      } else {
+        console.log(data);
+      }
       return true;
     }) as ProcessWritableStream,
 
     stderr: createProcessStream(true, (data: string) => {
-      console.error(data);
+      if (options?.onStderr) {
+        options.onStderr(data);
+      } else {
+        console.error(data);
+      }
       return true;
     }) as ProcessWritableStream,
 

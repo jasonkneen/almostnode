@@ -60,7 +60,7 @@ import { VirtualFS } from './virtual-fs';
 import { Runtime, RuntimeOptions } from './runtime';
 import { PackageManager } from './npm';
 import { ServerBridge, getServerBridge } from './server-bridge';
-import { exec as cpExec, setStreamingCallbacks, clearStreamingCallbacks } from './shims/child_process';
+import { exec as cpExec, setStreamingCallbacks, clearStreamingCallbacks, sendStdin } from './shims/child_process';
 
 export interface RunResult {
   stdout: string;
@@ -94,6 +94,7 @@ export function createContainer(options?: ContainerOptions): {
   execute: (code: string, filename?: string) => { exports: unknown };
   runFile: (filename: string) => { exports: unknown };
   run: (command: string, options?: RunOptions) => Promise<RunResult>;
+  sendInput: (data: string) => void;
   createREPL: () => { eval: (code: string) => unknown };
   on: (event: string, listener: (...args: unknown[]) => void) => void;
 } {
@@ -139,6 +140,7 @@ export function createContainer(options?: ContainerOptions): {
         });
       });
     },
+    sendInput: (data: string) => sendStdin(data),
     createREPL: () => runtime.createREPL(),
     on: (event: string, listener: (...args: unknown[]) => void) => {
       serverBridge.on(event, listener);

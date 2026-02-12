@@ -451,12 +451,15 @@ exec('npm foobar', (error, stdout, stderr) => {
     });
   });
 
-  describe('vitest command', () => {
-    it('should report vitest not installed when packages are missing', async () => {
-      vfs.writeFileSync('/package.json', JSON.stringify({
-        name: 'test-app',
-        scripts: { test: 'vitest run' },
-      }));
+  describe('bin stubs', () => {
+    it('should resolve commands from /node_modules/.bin/ via PATH', async () => {
+      // Create a simple bin stub like npm install would
+      vfs.mkdirSync('/node_modules/.bin', { recursive: true });
+      vfs.writeFileSync('/node_modules/.bin/hello', 'node "/node_modules/hello/cli.js" "$@"\n');
+
+      // Create the actual script
+      vfs.mkdirSync('/node_modules/hello', { recursive: true });
+      vfs.writeFileSync('/node_modules/hello/cli.js', 'console.log("hello from bin stub");');
 
       runtime = new Runtime(vfs, {
         onConsole: (method, args) => {
@@ -466,111 +469,17 @@ exec('npm foobar', (error, stdout, stderr) => {
 
       const code = `
 const { exec } = require('child_process');
-exec('vitest run', (error, stdout, stderr) => {
-  console.log('STDERR:' + stderr);
-  if (error) console.log('EXIT:' + error.code);
-});
-      `;
-
-      runtime.execute(code, '/test.js');
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      expect(consoleOutput.some(o => o.includes('vitest not installed'))).toBe(true);
-    });
-
-    it('should report no test files found when directory is empty', async () => {
-      // Create fake vitest package structure so the "installed" check passes
-      vfs.mkdirSync('/node_modules/@vitest/runner', { recursive: true });
-      vfs.mkdirSync('/node_modules/@vitest/expect', { recursive: true });
-      vfs.writeFileSync('/node_modules/@vitest/runner/package.json', '{"name":"@vitest/runner","main":"index.js"}');
-      vfs.writeFileSync('/node_modules/@vitest/expect/package.json', '{"name":"@vitest/expect","main":"index.js"}');
-
-      runtime = new Runtime(vfs, {
-        onConsole: (method, args) => {
-          consoleOutput.push(args.join(' '));
-        },
-      });
-
-      const code = `
-const { exec } = require('child_process');
-exec('vitest run', (error, stdout, stderr) => {
-  console.log('STDERR:' + stderr);
-  if (error) console.log('FAILED');
-});
-      `;
-
-      runtime.execute(code, '/test.js');
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      expect(consoleOutput.some(o => o.includes('No test files found'))).toBe(true);
-    });
-
-    it('should return error for unknown vitest subcommand', async () => {
-      vfs.mkdirSync('/node_modules/@vitest/runner', { recursive: true });
-      vfs.mkdirSync('/node_modules/@vitest/expect', { recursive: true });
-      vfs.writeFileSync('/node_modules/@vitest/runner/package.json', '{"name":"@vitest/runner","main":"index.js"}');
-      vfs.writeFileSync('/node_modules/@vitest/expect/package.json', '{"name":"@vitest/expect","main":"index.js"}');
-
-      runtime = new Runtime(vfs, {
-        onConsole: (method, args) => {
-          consoleOutput.push(args.join(' '));
-        },
-      });
-
-      const code = `
-const { exec } = require('child_process');
-exec('vitest benchmark', (error, stdout, stderr) => {
-  console.log('STDERR:' + stderr);
-  if (error) console.log('FAILED');
-});
-      `;
-
-      runtime.execute(code, '/test.js');
-      await new Promise(resolve => setTimeout(resolve, 200));
-
-      expect(consoleOutput.some(o => o.includes('Unknown command') && o.includes('benchmark'))).toBe(true);
-    });
-
-    it('should find test files matching *.test.js and *.spec.js patterns', async () => {
-      // Create fake vitest packages
-      vfs.mkdirSync('/node_modules/@vitest/runner', { recursive: true });
-      vfs.mkdirSync('/node_modules/@vitest/expect', { recursive: true });
-      vfs.writeFileSync('/node_modules/@vitest/runner/package.json', '{"name":"@vitest/runner","main":"index.js"}');
-      vfs.writeFileSync('/node_modules/@vitest/expect/package.json', '{"name":"@vitest/expect","main":"index.js"}');
-      // Provide empty module stubs so require doesn't fail on missing files
-      vfs.writeFileSync('/node_modules/@vitest/runner/index.js', 'module.exports = {};');
-      vfs.writeFileSync('/node_modules/@vitest/expect/index.js', 'module.exports = { chai: { use: function(){}, expect: function(){} }, JestChaiExpect: function(){}, JestExtend: function(){} };');
-
-      // Create test files
-      vfs.writeFileSync('/app.test.js', 'console.log("found test");');
-      vfs.writeFileSync('/app.spec.js', 'console.log("found spec");');
-      vfs.writeFileSync('/utils.js', 'console.log("not a test");');
-
-      // Write vitest index.cjs (the shim will overwrite it but we need the package check to pass)
-      vfs.mkdirSync('/node_modules/vitest', { recursive: true });
-      vfs.writeFileSync('/node_modules/vitest/index.cjs', 'module.exports = {};');
-
-      runtime = new Runtime(vfs, {
-        onConsole: (method, args) => {
-          consoleOutput.push(args.join(' '));
-        },
-      });
-
-      const code = `
-const { exec } = require('child_process');
-exec('vitest run', (error, stdout, stderr) => {
+exec('hello', (error, stdout, stderr) => {
   console.log('STDOUT:' + stdout);
-  console.log('STDERR:' + stderr);
+  if (error) console.log('ERROR:' + error.message);
 });
       `;
 
       runtime.execute(code, '/test.js');
       await new Promise(resolve => setTimeout(resolve, 500));
 
-      // Should have found test files (even if they error, the command should attempt to run them)
       const output = consoleOutput.join('\n');
-      // Either found 2 test files or reported errors for them — but should not say "no test files"
-      expect(output).not.toContain('No test files found');
+      expect(output).toContain('hello from bin stub');
     });
   });
 });
