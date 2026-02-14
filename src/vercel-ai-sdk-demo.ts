@@ -316,7 +316,7 @@ export default function ChatPage() {
   vfs.writeFileSync('/pages/api/chat.ts', `import { streamText } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 
-var CORS_PROXY = process.env.CORS_PROXY_URL || 'https://corsproxy.io/?';
+var CORS_PROXY = process.env.CORS_PROXY_URL || 'https://almostnode-cors-proxy.langtail.workers.dev/?url=';
 
 var openai = createOpenAI({
   apiKey: process.env.OPENAI_API_KEY || '',

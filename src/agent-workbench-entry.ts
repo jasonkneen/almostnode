@@ -18,7 +18,7 @@ import { PackageManager } from './npm/index';
 
 // ── Constants ──
 
-const CORS_PROXY = new URLSearchParams(window.location.search).get('corsProxy') || 'https://corsproxy.io/?';
+const CORS_PROXY = new URLSearchParams(window.location.search).get('corsProxy') || 'https://almostnode-cors-proxy.langtail.workers.dev/?url=';
 const PORT = 3004;
 
 // ── Logging (outside React) ──

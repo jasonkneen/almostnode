@@ -34,7 +34,7 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { readFile, writeFile, existsSync, listFiles, statSync, mkdirSync, runCommand, log } from '__project__';
 
-var CORS_PROXY = process.env.CORS_PROXY_URL || 'https://corsproxy.io/?';
+var CORS_PROXY = process.env.CORS_PROXY_URL || 'https://almostnode-cors-proxy.langtail.workers.dev/?url=';
 
 var openai = createOpenAI({
   apiKey: process.env.OPENAI_API_KEY || '',
